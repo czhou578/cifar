@@ -4,7 +4,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets, transforms
 from torch import nn
 from torch.amp import GradScaler, autocast
-
+from torch.utils.data import random_split
 
 # Basic preprocessing
 transform = transforms.Compose([
@@ -28,6 +28,13 @@ cifar_train = datasets.CIFAR100(
     transform=transform
 )
 
+total_size = len(cifar_train)
+train_size = int(0.8 * total_size)
+val_size = int(0.1 * total_size)
+test_size = total_size - train_size - val_size
+
+cifar_train, cifar_val, cifar_test = random_split(cifar_train, [train_size, val_size, test_size])
+
 cifar_classes = cifar_train.classes
 
 class CIFAR100Dataset(Dataset):
@@ -41,6 +48,10 @@ class CIFAR100Dataset(Dataset):
         image, label = self.cifar_dataset[idx]
         return image, label
 
+train_dataset = CIFAR100Dataset(cifar_train)
+val_dataset = CIFAR100Dataset(cifar_val)
+test_dataset = CIFAR100Dataset(cifar_test)
+
 class MLP(nn.Module):
     def __init__(self):
         super().__init__()
@@ -50,16 +61,20 @@ class MLP(nn.Module):
             nn.BatchNorm2d(12),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Dropout(p=0.3),
 
             nn.Conv2d(in_channels=12, out_channels=32, kernel_size=3, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Dropout(p=0.3)
+
         )
     
         self.classifier = nn.Sequential(
             nn.Linear(32 * 8 * 8, 512),
             nn.ReLU(),
+            nn.Dropout(p=0.3),
             nn.Linear(512, 100)
         )
 
@@ -71,22 +86,37 @@ class MLP(nn.Module):
 
 wrapped = CIFAR100Dataset(cifar_train)
 train_loader = DataLoader(
-    wrapped, 
-    batch_size=512,           # Larger batch for GPU
+    train_dataset, 
+    batch_size=512, 
     shuffle=True, 
-    num_workers=2,
-    pin_memory=True,
-    persistent_workers=True,
+    num_workers=2, 
+    pin_memory=True, 
+    persistent_workers=True, 
     prefetch_factor=4
 )
 
+val_loader = DataLoader(
+    val_dataset, 
+    batch_size=512, 
+    shuffle=False, 
+    num_workers=2, 
+    pin_memory=True
+)
+
+test_loader = DataLoader(
+    test_dataset, 
+    batch_size=512, 
+    shuffle=False, 
+    num_workers=2, 
+    pin_memory=True
+)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 
 mlp = MLP().to(device)
 
-loss_function = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(mlp.parameters(), lr=1e-3)
+loss_function = nn.CrossEntropyLoss(label_smoothing=0.1)
+optimizer = torch.optim.Adam(mlp.parameters(), lr=1e-3, weight_decay=1e-4)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=30, eta_min=0.001)
 # optimizer = torch.optim.SGD(mlp.parameters(), lr=1e-3)
 # optimizer = torch.optim.AdamW(mlp.parameters(), lr=1e-3)
@@ -104,7 +134,7 @@ for epoch in range(30):
 
         optimizer.zero_grad()
 
-        with autocast():
+        with autocast(device_type='cuda'):
             outputs = mlp(inputs)
             loss = loss_function(outputs, targets)
 

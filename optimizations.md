@@ -16,4 +16,9 @@ Guidelines for Tuning:
 1. learning rate
 2. momentum and mini batch size, hidden units
 3. layers, learning rate decay
-4.
+
+Dropout: It works by randomly setting a fraction of the input units to zero during training, which helps to prevent complex co-adaptations on the training data.
+
+Label Smoothing: Addresses issue of overconfidence in neural networks. Can improve generalization, acts as regularization, and better calibration.
+
+But... can potentially slow convergence, loss of interpretability, not always beneficial for datasets with clean and well-separated classes.
