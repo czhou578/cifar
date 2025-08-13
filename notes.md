@@ -62,6 +62,7 @@ Things to add later:
 Fuse modalities: Create a custom nn.Module for multimodal fusion (e.g., attention-based concatenation).
 Handle dynamic shapes: Ensure model handles variable text lengths with padding/masking.
 Why not add multiple layers to the nn.Sequential?
+Early stopping based on validation loss
 
 num_workers = 4 for dataloaders
 
@@ -103,3 +104,54 @@ Gradient Tracking: All registered parameters participate in backpropagation
 **Multimodal Contrastive Loss**
 
 The core principle involves bringing similar instances (positive pairs) closer together in an embedding space while pushing dissimilar instances (negative pairs) farther apart. This is achieved by defining a loss function that penalizes the model when the distance between positive pairs exceeds a predefined margin threshold, thereby encouraging the model to capture semantic relationships between modalities.
+
+**Autograd loss backward prop**
+
+Use CrossEntropyLoss / BCEWithLogitsLoss instead of manual softmax/sigmoid + log.
+Avoid in-place ops on tensors needed for grad.
+Zero grads before backward (optimizer.zero_grad(set_to_none=True)).
+Use GradScaler + autocast for mixed precision.
+Clip gradients if exploding.
+Monitor gradient norms and parameters for NaN/Inf.
+Use torch.autograd.set_detect_anomaly(True) for debugging.
+If writing custom autograd, verify with gradcheck in double precision.
+
+**Torch Metrics**
+
+Accuracy: Example: If your CIFAR-100 model makes 1000 predictions and gets 850 correct:
+Accuracy = 850/1000 = 0.85 or 85%
+
+Precision: "When the model says it's a dog, how often is it actually a dog?"
+
+Model predicts 100 images as "airplane"
+80 are actually airplanes, 20 are misclassified (maybe cars or birds)
+
+------> Precision = 80/100 = 0.80 or 80%
+
+Recall: Of all the actual dogs in the dataset, how many did the model find?
+
+There are 120 actual airplane images in the test set
+Model correctly identifies 80 of them as airplanes
+Model misses 40 airplanes (classifies them as something else)
+-------> Recall = 80/120 = 0.67 or 67%
+
+F1:
+
+When you need to balance precision and recall
+When classes are imbalanced
+When both false positives and false negatives are important
+
+High Precision, Low Recall: Conservative model - when it predicts a class, it's usually right, but it misses many instances
+Low Precision, High Recall: Liberal model - catches most instances but makes many false predictions
+Balanced F1: Good compromise between precision and recall
+Accuracy vs F1:
+Accuracy can be misleading with imbalanced data
+F1 provides better insight into per-class performance
+
+| Stage              | Recommended Practice                                                |
+| ------------------ | ------------------------------------------------------------------- |
+| Mode Setting       | `model.eval()`, and `model.train()` where appropriate               |
+| Gradient Handling  | Wrap inference in `torch.inference_mode()` or `torch.no_grad()`     |
+| Precision & Format | Use FP16 or quantization depending on deployment scenario           |
+| Optimization       | Leverage TorchScript, ONNX, TensorRT, fast loaders, bucketing, etc. |
+| Memory Management  | Clean variables and GPU cache post-inference                        |

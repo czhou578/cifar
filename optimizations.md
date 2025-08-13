@@ -22,3 +22,7 @@ Dropout: It works by randomly setting a fraction of the input units to zero duri
 Label Smoothing: Addresses issue of overconfidence in neural networks. Can improve generalization, acts as regularization, and better calibration.
 
 But... can potentially slow convergence, loss of interpretability, not always beneficial for datasets with clean and well-separated classes.
+
+Consider quantization (e.g., INT8) for CPU-based inference to reduce size and execution time.
+
+torch.inference_mode():
