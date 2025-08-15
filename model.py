@@ -4,7 +4,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets, transforms
 from torch import nn
 from torch.amp import GradScaler, autocast
-from torch.utils.data import random_split
+import torch.nn.utils.prune as prune
 import torchmetrics
 import torch.profiler
 from collections import OrderedDict
@@ -134,7 +134,7 @@ class MLP(nn.Module):
 
 train_loader = DataLoader(
     cifar_train,  # Use directly
-    batch_size=128,
+    batch_size=256,
     shuffle=True,
     num_workers=2,
     pin_memory=True
@@ -142,7 +142,7 @@ train_loader = DataLoader(
 
 val_loader = DataLoader(
     cifar_val,  # Use directly
-    batch_size=128,
+    batch_size=256,
     shuffle=False,
     num_workers=2,
     pin_memory=True
@@ -170,6 +170,8 @@ mlp = MLP().to(device)
 if hasattr(torch, 'compile'):
     mlp = torch.compile(mlp)
 
+num_epochs = 50
+
 loss_function = nn.CrossEntropyLoss()
 # optimizer = torch.optim.AdamW(
 #     mlp.parameters(),
@@ -178,25 +180,26 @@ loss_function = nn.CrossEntropyLoss()
 #     eps=1e-8
 # )
 
-# optimizer = torch.optim.SGD(params=mlp.parameters(), momentum=0.9, weight_decay=1e-5, lr=1e-1)
-
 optimizer = torch.optim.AdamW(
     mlp.parameters(),
     lr=1e-3,  # This will be the max_lr
     weight_decay=1e-2
 )
+# optimizer = torch.optim.SGD(mlp.parameters(), lr=1e-3)
+
+new_max_lr = 1e-3 * (256 / 128)**0.5 # Sqrt scaling rule: ~1.414e-3
 
 scheduler = torch.optim.lr_scheduler.OneCycleLR(
     optimizer,
-    max_lr=1e-3,  # Set a reasonable max learning rate
-    total_steps=50 * len(train_loader),
+    max_lr=new_max_lr,  # Set a reasonable max learning rate
+    epochs=num_epochs,
+    steps_per_epoch=len(train_loader),
     pct_start=0.1, # Use a smaller warmup phase
     anneal_strategy='cos'
 )
-# optimizer = torch.optim.SGD(mlp.parameters(), lr=1e-3)
 scaler = GradScaler()
 
-for epoch in range(25):
+for epoch in range(num_epochs):
     print(f'Starting Epoch {epoch+1}')
     mlp.train()
 
@@ -278,18 +281,78 @@ for epoch in range(25):
 
 print("Training has completed")
 
-def fuse_model(model):
-    modules_to_fuse = []
+if torch.cuda.is_available():
+    torch.cuda.empty_cache()
+
+def prune_and_finetune_model(model, amount=0.3, finetune_epochs=5):
+    """
+    Applies structured pruning to the model and finetunes it to recover lost progress
+    """
+
+    print(f"Pruning {amount*100}% of channels from all Conv2d layers...")
 
     for name, module in model.named_modules():
+        if isinstance(module, nn.Conv2d):
+            prune.ln_structured(module, name="weight", amount=amount, n=2, dim=0)
+    
+    optimizer.param_groups[0]['lr'] = 1e-5
+
+    for epoch in range(finetune_epochs):
+        model.train()
+        for data in train_loader:
+            inputs, targets = data
+            inputs, targets = inputs.to(device), targets.to(device)
+
+            with autocast(device_type='cuda'):
+                outputs = model(inputs)
+                loss = loss_function(outputs, targets)
+
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            optimizer.zero_grad(set_to_none=True)    
+
+        print(f"Fine-tuning epoch {epoch+1}/{finetune_epochs} complete.")
+
+    print("\nMaking pruning permanent...")
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Conv2d):
+            prune.remove(module, 'weight')
+
+    return model        
+
+def fuse_model(model):
+    """
+    Fuses Conv-BN-ReLU layers in a model that uses nn.Sequential with OrderedDict.
+    """
+    modules_to_fuse = []
+    for name, module in model.named_modules():
         if isinstance(module, nn.Sequential):
-            for i in range(len(module) - 2):
-                if (isinstance(module[i], nn.Conv2d) and isinstance(module[i + 1], nn.BatchNorm2d) and isinstance(module[i + 2], nn.ReLU)):
-                    modules_to_fuse.append([f'{name}.{i}', f'{name}.{i+1}', f'{name}.{i+2}'])
+            # Convert children to a list to allow indexing
+            layer_list = list(module.children())
+            # Get the string names of the layers
+            layer_names = [n for n, _ in module.named_children()]
+
+            for i in range(len(layer_list) - 2):
+                if (isinstance(layer_list[i], nn.Conv2d) and
+                    isinstance(layer_list[i + 1], nn.BatchNorm2d) and
+                    isinstance(layer_list[i + 2], nn.ReLU)):
+                    
+                    # Construct the full string names for fuse_modules
+                    modules_to_fuse.append([
+                        f'{name}.{layer_names[i]}',
+                        f'{name}.{layer_names[i+1]}',
+                        f'{name}.{layer_names[i+2]}'
+                    ])
+
     if modules_to_fuse:
         print(f"Fusing {len(modules_to_fuse)} layers...")
+        # Fusion must be done in eval mode.
+        model.eval()
         torch.quantization.fuse_modules(model, modules_to_fuse, inplace=True)
     return model
+
+mlp = prune_and_finetune_model(mlp, amount=0.4, finetune_epochs=5)
 
 def evaluate_test_set():
     mlp.eval()

@@ -178,3 +178,18 @@ The Opportunity for Fusion: Since a Conv2d layer is also a linear operation, and
 ```python3
 torch.quantization.fuse_modules
 ```
+
+**Quantization for INT8**
+
+It converts the model's weights and activations from 32-bit floating-point numbers (FP32) to 8-bit integers (INT8).
+
+**Pruning**
+
+Pruning is an excellent technique to reduce model size and potentially speed up inference by removing less important weights. Structured pruning, which removes entire filters or channels, is particularly effective because it creates a smaller, dense model that doesn't require special hardware for a speedup.
+
+Train a model to convergence (which you have already done).
+Prune the trained model by removing a certain percentage of weights.
+Fine-tune the pruned model for a few epochs to recover the accuracy lost during pruning.
+Evaluate the final, smaller model.
+
+how is new max learning rate calculated?

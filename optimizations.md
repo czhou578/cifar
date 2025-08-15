@@ -25,4 +25,16 @@ But... can potentially slow convergence, loss of interpretability, not always be
 
 Consider quantization (e.g., INT8) for CPU-based inference to reduce size and execution time.
 
-torch.inference_mode():
+torch.inference_mode()
+
+**Model Fusing**: merges the mathematical operations of these layers into a single layer. Should be done after traininga and before eval.
+
+**Pruning**:
+
+prune.ln_structured: This function is the core of the pruning logic.
+
+module: The layer to prune (e.g., a Conv2d layer).
+name='weight': Specifies that we are pruning the weight tensor of the layer.
+amount=0.4: This tells PyTorch to remove 40% of the structures.
+n=2: Uses the L2-norm to measure the importance of each filter. Filters with a smaller L2-norm are considered less important and are removed first.
+dim=0: For a Conv2d weight tensor with shape [out_channels, in_channels, kH, kW], dim=0 means we are pruning entire filters (i.e., along the out_channels dimension).
