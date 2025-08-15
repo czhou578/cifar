@@ -6,6 +6,7 @@ from torch import nn
 from torch.amp import GradScaler, autocast
 from torch.utils.data import random_split
 import torchmetrics
+import torch.profiler
 
 torch.backends.cudnn.benchmark = True
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -16,45 +17,52 @@ if torch.cuda.is_available():
     print(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
     torch.cuda.empty_cache()
 
-# More aggressive augmentation
+# Simplified augmentation
 transform = transforms.Compose([
     transforms.RandomHorizontalFlip(p=0.5),
     transforms.RandomCrop(32, padding=4),
-    transforms.RandomRotation(15),  # NEW
-    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.1, hue=0.1),  # Enhanced
-    transforms.RandomErasing(p=0.1),  # NEW - Cutout-like augmentation
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])
 ])
 
 test_transform = transforms.Compose([
-    transforms.ToTensor(),
+    transforms.ToTensor(), # Moved ToTensor before Normalize (good practice)
     transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])
 ])
 
-# Download CIFAR-100
-cifar_train = datasets.CIFAR100(
+# Download CIFAR-100 WITHOUT transform first
+cifar_train_raw = datasets.CIFAR100(
     root="./data",
     train=True,
     download=True,
-    transform=transform
+    transform=None  # No transform initially
 )
 
-total_size = len(cifar_train)
+# Split the raw dataset
+total_size = len(cifar_train_raw)
 train_size = int(0.8 * total_size)
-val_size = int(0.1 * total_size)
+val_size = int(0.1 * total_size) 
 test_size = total_size - train_size - val_size
 
-# Get classes before splitting
-cifar_classes = cifar_train.classes
+train_indices = list(range(0, train_size))
+val_indices = list(range(train_size, train_size + val_size))
+test_indices = list(range(train_size + val_size, total_size))
 
-cifar_train, cifar_val, cifar_test = random_split(cifar_train, [train_size, val_size, test_size])
+# Apply transforms to each split
+cifar_train = datasets.CIFAR100(root="./data", train=True, transform=transform)
+cifar_val = datasets.CIFAR100(root="./data", train=True, transform=test_transform)
+cifar_test = datasets.CIFAR100(root="./data", train=True, transform=test_transform)
 
+# Create subsets with indices
+from torch.utils.data import Subset
+cifar_train = Subset(cifar_train, train_indices)
+cifar_val = Subset(cifar_val, val_indices)
+cifar_test = Subset(cifar_test, test_indices)
 
 class CIFAR100Dataset(Dataset):
     def __init__(self, cifar_dataset):
         self.cifar_dataset = cifar_dataset
-    
+
     def __len__(self):
         return len(self.cifar_dataset)
 
@@ -69,8 +77,28 @@ test_dataset = CIFAR100Dataset(cifar_test)
 class MLP(nn.Module):
     def __init__(self):
         super().__init__()
+        # self.layers = nn.Sequential(
+        #     nn.Conv2d(in_channels=3, out_channels=16,kernel_size= 3,stride=1, padding=1),
+        #     # Activation function
+        #     nn.ReLU(),
+        #     # Max pooling layer
+        #     torch.nn.MaxPool2d(kernel_size=2),
+        #     nn.Conv2d(in_channels=16, out_channels=32,kernel_size= 3,stride=1, padding=1),
+        #     nn.ReLU(),
+        #     torch.nn.MaxPool2d(kernel_size=2),
+        #     nn.Conv2d(in_channels=32, out_channels=64,kernel_size= 3,stride=1, padding=1),
+        #     nn.ReLU(),
+        #     torch.nn.MaxPool2d(kernel_size=2),
+        #     nn.Conv2d(in_channels=64, out_channels=128,kernel_size= 3,stride=1, padding=1),
+        #     nn.ReLU(),
+        #     torch.nn.MaxPool2d(kernel_size=2)            
+        # )
+        # self.classifier = nn.Sequential(
+        #     nn.Linear(128 * 2 * 2, 206),
+        #     nn.Linear(206, 100)
+
+        # )
         self.layers = nn.Sequential(
-            # Block 1: 32x32 -> 16x16
             nn.Conv2d(3, 64, 3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
@@ -78,9 +106,8 @@ class MLP(nn.Module):
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(2),
-            nn.Dropout(0.25),
-            
-            # Block 2: 16x16 -> 8x8
+            nn.Dropout(0.1),
+
             nn.Conv2d(64, 128, 3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
@@ -88,9 +115,8 @@ class MLP(nn.Module):
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(2),
-            nn.Dropout(0.25),
-            
-            # Block 3: 8x8 -> 4x4 (NEW!)
+            nn.Dropout(0.1),
+
             nn.Conv2d(128, 256, 3, padding=1),
             nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
@@ -98,16 +124,25 @@ class MLP(nn.Module):
             nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(2),
-            nn.Dropout(0.3),
+            nn.Dropout(0.1),
+
+            nn.Conv2d(256, 512, 3, padding=1),  # Added block
+            nn.BatchNorm2d(512),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(512, 512, 3, padding=1),
+            nn.BatchNorm2d(512),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2),
+            nn.Dropout(0.1),
         )
 
         self.classifier = nn.Sequential(
-            nn.Linear(256 * 4 * 4, 1024),
+            nn.Linear(512 * 2 * 2, 1024),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.5),
+            nn.Dropout(0.1),
             nn.Linear(1024, 512),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.5),
+            nn.Dropout(0.1),
             nn.Linear(512, 100)
         )
 
@@ -117,20 +152,17 @@ class MLP(nn.Module):
         x = self.classifier(x)
         return x
 
-wrapped = CIFAR100Dataset(cifar_train)
 train_loader = DataLoader(
-    train_dataset,
-    batch_size=1024,
+    cifar_train,  # Use directly
+    batch_size=128,
     shuffle=True,
     num_workers=2,
-    pin_memory=True,
-    persistent_workers=True,
-    prefetch_factor=4
+    pin_memory=True
 )
 
 val_loader = DataLoader(
-    val_dataset,
-    batch_size=1024,
+    cifar_val,  # Use directly
+    batch_size=128,
     shuffle=False,
     num_workers=2,
     pin_memory=True
@@ -154,30 +186,39 @@ val_recall = torchmetrics.Recall(task="multiclass", num_classes=num_classes, ave
 val_f1 = torchmetrics.F1Score(task="multiclass", num_classes=num_classes, average='macro').to(device)
 
 
-mlp = MLP().to(device).half()
+mlp = MLP().to(device)
 if hasattr(torch, 'compile'):
     mlp = torch.compile(mlp)
 
-loss_function = nn.CrossEntropyLoss(label_smoothing=0.1)
+loss_function = nn.CrossEntropyLoss()
+# optimizer = torch.optim.AdamW(
+#     mlp.parameters(),
+#     lr=1e-4,  # Reduced from 1e-3
+#     weight_decay=1e-4,
+#     eps=1e-8
+# )
+
+# optimizer = torch.optim.SGD(params=mlp.parameters(), momentum=0.9, weight_decay=1e-5, lr=1e-1)
+
 optimizer = torch.optim.AdamW(
-    mlp.parameters(), 
-    lr=1e-3, 
-    weight_decay=5e-4,
-    eps=1e-4  # Higher epsilon for FP16 stability
+    mlp.parameters(),
+    lr=1e-3,  # This will be the max_lr
+    weight_decay=1e-2
 )
+
 scheduler = torch.optim.lr_scheduler.OneCycleLR(
-    optimizer, 
-    max_lr=3e-3,  # Higher peak learning rate
-    total_steps=50 * len(train_loader),  # More epochs
-    pct_start=0.1,
+    optimizer,
+    max_lr=1e-3,  # Set a reasonable max learning rate
+    total_steps=50 * len(train_loader),
+    pct_start=0.1, # Use a smaller warmup phase
     anneal_strategy='cos'
 )
 # optimizer = torch.optim.SGD(mlp.parameters(), lr=1e-3)
-# scaler = GradScaler()
+scaler = GradScaler()
 
-for epoch in range(50):
+for epoch in range(25):
     print(f'Starting Epoch {epoch+1}')
-    mlp.train()  # Add this line
+    mlp.train()
 
     current_loss = 0.0
     num_batches = 0
@@ -185,26 +226,34 @@ for epoch in range(50):
 
     for i, data in enumerate(train_loader):
         inputs, targets = data
-        inputs = inputs.to(device).half()  # Convert inputs to FP16
-        targets = targets.to(device)
+        inputs, targets = inputs.to(device), targets.to(device)
 
+        with autocast(device_type='cuda'):
+            outputs = mlp(inputs)
+            loss = loss_function(outputs, targets)
+
+        scaler.scale(loss).backward()
+        scaler.unscale_(optimizer)
+        # utils.clip_grad_norm_(mlp.parameters(), max_norm=1.0)
+        scaler.step(optimizer)
+
+        scaler.update()
         optimizer.zero_grad(set_to_none=True)
-
-        outputs = mlp(inputs)
-        loss = loss_function(outputs, targets)
-        loss.backward()
-
-        utils.clip_grad_norm_(mlp.parameters(), max_norm=1.0)
-        optimizer.step()
+        scheduler.step()
 
         current_loss += loss.item()
         num_batches += 1
+        train_accuracy.update(outputs.detach(), targets)
+        
+        # Add progress monitoring
+        if i % 50 == 0:
+            print(f'Batch {i}/{len(train_loader)}, Loss: {loss.item():.4f}')
 
-        train_accuracy.update(outputs, targets)
-
-    scheduler.step()
     avg_train_loss = current_loss / num_batches
     train_acc = train_accuracy.compute()
+
+    print(f'Epoch {epoch+1} finished')
+    print(f'Training - Loss: {avg_train_loss:.4f}, Accuracy: {train_acc:.4f}')
 
     mlp.eval()
     val_loss = 0.0
@@ -221,7 +270,7 @@ for epoch in range(50):
     with torch.no_grad():
         for val_data in val_loader:
             val_inputs, val_targets = val_data
-            val_inputs = val_inputs.to(device).half()  # Convert inputs to FP16
+            val_inputs = val_inputs.to(device)  # Convert inputs to FP16
             val_targets = val_targets.to(device)
 
             val_outputs = mlp(val_inputs)
@@ -258,18 +307,31 @@ def evaluate_test_set():
     test_recall = torchmetrics.Recall(task="multiclass", num_classes=num_classes, average='macro').to(device)
     test_f1 = torchmetrics.F1Score(task="multiclass", num_classes=num_classes, average='macro').to(device)
 
-    with torch.no_grad():
-        for test_data in test_loader:
-            test_inputs, test_targets = test_data
-            test_inputs = test_inputs.to(device).half()  # Convert inputs to FP16
-            test_targets = test_targets.to(device)
+    with torch.profiler.profile(
+        activities=[
+            torch.profiler.ProfilerActivity.CPU,
+            torch.profiler.ProfilerActivity.CUDA
+        ],
+        on_trace_ready=torch.profiler.tensorboard_trace_handler("./log"),
+        record_shapes=True,
+        with_stack=True,
+        schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=2) # Add a schedule
+    ) as profiler:
+        with torch.no_grad():
+            for i, test_data in enumerate(test_loader):
+                test_inputs, test_targets = test_data
+                test_inputs = test_inputs.to(device)
+                test_targets = test_targets.to(device)
 
-            test_outputs = mlp(test_inputs)
+                with torch.profiler.record_function("model_inference"): # FIX: Use torch.profiler.record_function
+                    test_outputs = mlp(test_inputs)
 
-            test_accuracy.update(test_outputs, test_targets)
-            test_precision.update(test_outputs, test_targets)
-            test_recall.update(test_outputs, test_targets)
-            test_f1.update(test_outputs, test_targets)
+                test_accuracy.update(test_outputs, test_targets)
+                test_precision.update(test_outputs, test_targets)
+                test_recall.update(test_outputs, test_targets)
+                test_f1.update(test_outputs, test_targets)
+                
+                profiler.step() # FIX: Add profiler.step() at the end of the loop
 
     test_acc = test_accuracy.compute()
     test_prec = test_precision.compute()
@@ -281,5 +343,6 @@ def evaluate_test_set():
     print(f'Test Precision: {test_prec:.4f}')
     print(f'Test Recall: {test_rec:.4f}')
     print(f'Test F1-Score: {test_f1_score:.4f}')
+    print(profiler.key_averages().table(sort_by="cuda_time_total", row_limit=10))
 
 evaluate_test_set()

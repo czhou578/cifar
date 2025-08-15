@@ -155,3 +155,9 @@ F1 provides better insight into per-class performance
 | Precision & Format | Use FP16 or quantization depending on deployment scenario           |
 | Optimization       | Leverage TorchScript, ONNX, TensorRT, fast loaders, bucketing, etc. |
 | Memory Management  | Clean variables and GPU cache post-inference                        |
+
+Epoch 50 finished
+Training - Loss: 1.4756, Accuracy: 0.5858
+Validation - Loss: 2.0236, Accuracy: 0.4848
+Validation - Precision: 0.4847, Recall: 0.4877, F1: 0.4813
+Training has completed
