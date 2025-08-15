@@ -161,3 +161,20 @@ Training - Loss: 1.4756, Accuracy: 0.5858
 Validation - Loss: 2.0236, Accuracy: 0.4848
 Validation - Precision: 0.4847, Recall: 0.4877, F1: 0.4813
 Training has completed
+
+**Model Fusing**: merges the mathematical operations of these layers into a single layer. Should be done after traininga and before eval.
+
+1. Why It Breaks Training
+   The core of the issue lies in how BatchNorm2d works.
+
+During Training (model.train() mode): BatchNorm is a dynamic layer. It normalizes the output of the convolution layer using the mean and standard deviation of the current mini-batch. It also updates its internal running_mean and running_var statistics with a moving average. This per-batch normalization is crucial for stabilizing the learning process, reducing internal covariate shift, and allowing for higher learning rates.
+
+The Effect of Fusing: Fusing bakes the BatchNorm parameters (the learned gamma and beta along with the final running_mean and running_var) directly into the weights and bias of the preceding Conv2d layer.
+
+If you were to fuse during training, you would destroy the dynamic, per-batch normalization. The BatchNorm layer's stabilizing effect would be gone, and the model would be trying to learn with a fixed, stale normalization that doesn't adapt to each new batch. This would severely destabilize training and prevent the model from converging.
+
+The Opportunity for Fusion: Since a Conv2d layer is also a linear operation, and an eval() mode BatchNorm2d is another linear operation, their math can be merged. You can pre-calculate a new set of weights and a new bias for the Conv2d layer that produces the exact same output as the original Conv2d followed by the BatchNorm2d.
+
+```python3
+torch.quantization.fuse_modules
+```

@@ -7,6 +7,7 @@ from torch.amp import GradScaler, autocast
 from torch.utils.data import random_split
 import torchmetrics
 import torch.profiler
+from collections import OrderedDict
 
 torch.backends.cudnn.benchmark = True
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -77,74 +78,53 @@ test_dataset = CIFAR100Dataset(cifar_test)
 class MLP(nn.Module):
     def __init__(self):
         super().__init__()
-        # self.layers = nn.Sequential(
-        #     nn.Conv2d(in_channels=3, out_channels=16,kernel_size= 3,stride=1, padding=1),
-        #     # Activation function
-        #     nn.ReLU(),
-        #     # Max pooling layer
-        #     torch.nn.MaxPool2d(kernel_size=2),
-        #     nn.Conv2d(in_channels=16, out_channels=32,kernel_size= 3,stride=1, padding=1),
-        #     nn.ReLU(),
-        #     torch.nn.MaxPool2d(kernel_size=2),
-        #     nn.Conv2d(in_channels=32, out_channels=64,kernel_size= 3,stride=1, padding=1),
-        #     nn.ReLU(),
-        #     torch.nn.MaxPool2d(kernel_size=2),
-        #     nn.Conv2d(in_channels=64, out_channels=128,kernel_size= 3,stride=1, padding=1),
-        #     nn.ReLU(),
-        #     torch.nn.MaxPool2d(kernel_size=2)            
-        # )
-        # self.classifier = nn.Sequential(
-        #     nn.Linear(128 * 2 * 2, 206),
-        #     nn.Linear(206, 100)
+        self.layers = nn.Sequential(OrderedDict([
+            ('conv1_1', nn.Conv2d(3, 64, 3, padding=1)),
+            ('bn1_1', nn.BatchNorm2d(64)),
+            ('relu1_1', nn.ReLU(inplace=True)),
+            ('conv1_2', nn.Conv2d(64, 64, 3, padding=1)),
+            ('bn1_2', nn.BatchNorm2d(64)),
+            ('relu1_2', nn.ReLU(inplace=True)),
+            ('pool1', nn.MaxPool2d(2)),
+            ('drop1', nn.Dropout(0.1)),
 
-        # )
-        self.layers = nn.Sequential(
-            nn.Conv2d(3, 64, 3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(64, 64, 3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
-            nn.Dropout(0.1),
+            ('conv2_1', nn.Conv2d(64, 128, 3, padding=1)),
+            ('bn2_1', nn.BatchNorm2d(128)),
+            ('relu2_1', nn.ReLU(inplace=True)),
+            ('conv2_2', nn.Conv2d(128, 128, 3, padding=1)),
+            ('bn2_2', nn.BatchNorm2d(128)),
+            ('relu2_2', nn.ReLU(inplace=True)),
+            ('pool2', nn.MaxPool2d(2)),
+            ('drop2', nn.Dropout(0.1)),
 
-            nn.Conv2d(64, 128, 3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, 3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
-            nn.Dropout(0.1),
+            ('conv3_1', nn.Conv2d(128, 256, 3, padding=1)),
+            ('bn3_1', nn.BatchNorm2d(256)),
+            ('relu3_1', nn.ReLU(inplace=True)),
+            ('conv3_2', nn.Conv2d(256, 256, 3, padding=1)),
+            ('bn3_2', nn.BatchNorm2d(256)),
+            ('relu3_2', nn.ReLU(inplace=True)),
+            ('pool3', nn.MaxPool2d(2)),
+            ('drop3', nn.Dropout(0.1)),
 
-            nn.Conv2d(128, 256, 3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(256, 256, 3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
-            nn.Dropout(0.1),
+            ('conv4_1', nn.Conv2d(256, 512, 3, padding=1)),
+            ('bn4_1', nn.BatchNorm2d(512)),
+            ('relu4_1', nn.ReLU(inplace=True)),
+            ('conv4_2', nn.Conv2d(512, 512, 3, padding=1)),
+            ('bn4_2', nn.BatchNorm2d(512)),
+            ('relu4_2', nn.ReLU(inplace=True)),
+            ('pool4', nn.MaxPool2d(2)),
+            ('drop4', nn.Dropout(0.1)),
+        ]))
 
-            nn.Conv2d(256, 512, 3, padding=1),  # Added block
-            nn.BatchNorm2d(512),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(512, 512, 3, padding=1),
-            nn.BatchNorm2d(512),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
-            nn.Dropout(0.1),
-        )
-
-        self.classifier = nn.Sequential(
-            nn.Linear(512 * 2 * 2, 1024),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.1),
-            nn.Linear(1024, 512),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.1),
-            nn.Linear(512, 100)
-        )
+        self.classifier = nn.Sequential(OrderedDict([
+            ('fc1', nn.Linear(512 * 2 * 2, 1024)),
+            ('relu1', nn.ReLU(inplace=True)),
+            ('drop1', nn.Dropout(0.1)),
+            ('fc2', nn.Linear(1024, 512)),
+            ('relu2', nn.ReLU(inplace=True)),
+            ('drop2', nn.Dropout(0.1)),
+            ('fc3', nn.Linear(512, 100))
+        ]))
 
     def forward(self, x):
         x = self.layers(x)
@@ -298,9 +278,24 @@ for epoch in range(25):
 
 print("Training has completed")
 
+def fuse_model(model):
+    modules_to_fuse = []
+
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Sequential):
+            for i in range(len(module) - 2):
+                if (isinstance(module[i], nn.Conv2d) and isinstance(module[i + 1], nn.BatchNorm2d) and isinstance(module[i + 2], nn.ReLU)):
+                    modules_to_fuse.append([f'{name}.{i}', f'{name}.{i+1}', f'{name}.{i+2}'])
+    if modules_to_fuse:
+        print(f"Fusing {len(modules_to_fuse)} layers...")
+        torch.quantization.fuse_modules(model, modules_to_fuse, inplace=True)
+    return model
 
 def evaluate_test_set():
     mlp.eval()
+
+    fused_mlp = fuse_model(mlp)
+    print("Model after fusion:\n", fused_mlp)    
 
     test_accuracy = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes).to(device)
     test_precision = torchmetrics.Precision(task="multiclass", num_classes=num_classes, average='macro').to(device)
@@ -331,7 +326,7 @@ def evaluate_test_set():
                 test_recall.update(test_outputs, test_targets)
                 test_f1.update(test_outputs, test_targets)
                 
-                profiler.step() # FIX: Add profiler.step() at the end of the loop
+                profiler.step()
 
     test_acc = test_accuracy.compute()
     test_prec = test_precision.compute()
