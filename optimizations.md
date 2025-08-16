@@ -38,3 +38,9 @@ name='weight': Specifies that we are pruning the weight tensor of the layer.
 amount=0.4: This tells PyTorch to remove 40% of the structures.
 n=2: Uses the L2-norm to measure the importance of each filter. Filters with a smaller L2-norm are considered less important and are removed first.
 dim=0: For a Conv2d weight tensor with shape [out_channels, in_channels, kH, kW], dim=0 means we are pruning entire filters (i.e., along the out_channels dimension).
+
+**Channel Last Memory Format**
+
+It reorganizes the memory layout of tensors from (N, C, H, W) to (N, H, W, C), which allows PyTorch's underlying libraries (like oneDNN) to use much more efficient algorithms.
+
+Pin memory has no effect on CPU
