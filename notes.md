@@ -193,3 +193,5 @@ Fine-tune the pruned model for a few epochs to recover the accuracy lost during 
 Evaluate the final, smaller model.
 
 how is new max learning rate calculated?
+
+51% CPU result with 20 epochs and gradient accumulation

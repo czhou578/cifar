@@ -6,6 +6,9 @@ from torch import nn
 from collections import OrderedDict
 from torch.utils.data import Subset
 
+torch.backends.cudnn.benchmark = False  # We're on CPU
+torch.set_float32_matmul_precision('medium')  # Allow some precision loss for speed
+
 torch.set_num_threads(4)  # Adjust based on your CPU cores
 torch.set_num_interop_threads(2)
 
@@ -187,7 +190,8 @@ train_loader = DataLoader(
     shuffle=True,
     num_workers=2,   # OPTIMIZATION: Reduce workers for CPU
     pin_memory=False,
-    persistent_workers=True  # OPTIMIZATION: Keep workers alive
+    persistent_workers=True,  # OPTIMIZATION: Keep workers alive
+    prefetch_factor=4
 )
 
 val_loader = DataLoader(
@@ -196,7 +200,8 @@ val_loader = DataLoader(
     shuffle=False,
     num_workers=2,   # OPTIMIZATION: Reduce workers
     pin_memory=False,
-    persistent_workers=True
+    persistent_workers=True,
+    prefetch_factor=4
 )
 
 test_loader = DataLoader(
@@ -230,7 +235,7 @@ if __name__ == '__main__':
         print("Compiling model for optimization...")
         mlp = torch.compile(mlp, mode="reduce-overhead")  # Use faster compile mode
 
-    num_epochs = 1
+    num_epochs = 20
     loss_function = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(mlp.parameters(), lr=1e-3, weight_decay=1e-2)
 
@@ -244,6 +249,8 @@ if __name__ == '__main__':
         anneal_strategy='cos'
     )
 
+    accumulation_steps = 4 # simulate batch size of 128*4 = 512
+
     for epoch in range(num_epochs):
         print(f'Starting Epoch {epoch+1}')
         mlp.train()
@@ -256,14 +263,16 @@ if __name__ == '__main__':
             inputs, targets = data
             inputs, targets = inputs.to(device, memory_format=torch.channels_last), targets.to(device)
 
-            optimizer.zero_grad()
             outputs = mlp(inputs)
             loss = loss_function(outputs, targets)
             loss.backward()
-            optimizer.step()
-            scheduler.step()
 
-            current_loss += loss.item()
+            if (i + 1) % accumulation_steps == 0:
+                optimizer.step()
+                optimizer.zero_grad()
+                scheduler.step()
+
+            current_loss += loss.item() * accumulation_steps
             num_batches += 1
             update_metrics(train_metrics, outputs.detach(), targets)
             
@@ -277,29 +286,30 @@ if __name__ == '__main__':
         print(f'Epoch {epoch+1} finished')
         print(f'Training - Loss: {avg_train_loss:.4f}, Accuracy: {train_acc:.4f}')
 
+        if epoch % 2 == 0 or epoch == num_epochs - 1:
         # Validation loop
-        mlp.eval()
-        val_loss = 0.0
-        val_batches = 0
-        val_metrics = reset_metrics()
+            mlp.eval()
+            val_loss = 0.0
+            val_batches = 0
+            val_metrics = reset_metrics()
 
-        with torch.no_grad():
-            for val_data in val_loader:
-                val_inputs, val_targets = val_data
-                val_inputs = val_inputs.to(device, memory_format=torch.channels_last)
-                val_targets = val_targets.to(device)
+            with torch.no_grad():
+                for val_data in val_loader:
+                    val_inputs, val_targets = val_data
+                    val_inputs = val_inputs.to(device, memory_format=torch.channels_last)
+                    val_targets = val_targets.to(device)
 
-                val_outputs = mlp(val_inputs)
-                val_batch_loss = loss_function(val_outputs, val_targets)
+                    val_outputs = mlp(val_inputs)
+                    val_batch_loss = loss_function(val_outputs, val_targets)
 
-                val_loss += val_batch_loss.item()
-                val_batches += 1
-                update_metrics(val_metrics, val_outputs, val_targets)
+                    val_loss += val_batch_loss.item()
+                    val_batches += 1
+                    update_metrics(val_metrics, val_outputs, val_targets)
 
-        avg_val_loss = val_loss / val_batches
-        val_acc = compute_accuracy(val_metrics)
+            avg_val_loss = val_loss / val_batches
+            val_acc = compute_accuracy(val_metrics)
 
-        print(f'Validation - Loss: {avg_val_loss:.4f}, Accuracy: {val_acc:.4f}')
+            print(f'Validation - Loss: {avg_val_loss:.4f}, Accuracy: {val_acc:.4f}')
 
     print("Training has completed")
 

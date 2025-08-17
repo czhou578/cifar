@@ -44,3 +44,8 @@ dim=0: For a Conv2d weight tensor with shape [out_channels, in_channels, kH, kW]
 It reorganizes the memory layout of tensors from (N, C, H, W) to (N, H, W, C), which allows PyTorch's underlying libraries (like oneDNN) to use much more efficient algorithms.
 
 Pin memory has no effect on CPU
+
+Gradient Accumulation for effective larger batch sizes: This simulates larger batch sizes without memory overhead, leading to better convergence and fewer optimizer steps:
+
+optimizer.zero_grad(set_to_none=True): More memory efficient then default gradient zeroing
+prefetch_factor = 4 -> prefetch more batches
