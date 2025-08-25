@@ -8,6 +8,7 @@ import torch.nn.utils.prune as prune
 import torchmetrics
 import torch.profiler
 from collections import OrderedDict
+from torch.utils.data import Subset
 
 torch.backends.cudnn.benchmark = True
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -21,9 +22,13 @@ if torch.cuda.is_available():
 # Simplified augmentation
 transform = transforms.Compose([
     transforms.RandomHorizontalFlip(p=0.5),
-    transforms.RandomCrop(32, padding=4),
+    transforms.RandomRotation(2.8),
+    transforms.RandomGrayscale(0.2),
+    transforms.ColorJitter(0.4, 0.4, 0.4, 0.1),  # Stronger color jitter
+    transforms.RandomCrop(32, padding=4, padding_mode='reflect'),
     transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])
+    transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761]),
+    transforms.RandomErasing(p=0.25, scale=(0.02, 0.33))  # Add random erasing
 ])
 
 test_transform = transforms.Compose([
@@ -31,49 +36,21 @@ test_transform = transforms.Compose([
     transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])
 ])
 
-# Download CIFAR-100 WITHOUT transform first
-cifar_train_raw = datasets.CIFAR100(
-    root="./data",
-    train=True,
-    download=True,
-    transform=None  # No transform initially
-)
+# Download both training and test sets
+cifar_train_raw = datasets.CIFAR100(root="./data", train=True, download=True, transform=None)
+cifar_test_raw = datasets.CIFAR100(root="./data", train=False, download=True, transform=None)
 
-# Split the raw dataset
-total_size = len(cifar_train_raw)
-train_size = int(0.8 * total_size)
-val_size = int(0.1 * total_size) 
-test_size = total_size - train_size - val_size
+# Split only the training set into train/val
+train_size = int(0.9 * len(cifar_train_raw))  # 45,000 training points
+val_size = len(cifar_train_raw) - train_size   # 5,000 validation points
 
 train_indices = list(range(0, train_size))
-val_indices = list(range(train_size, train_size + val_size))
-test_indices = list(range(train_size + val_size, total_size))
+val_indices = list(range(train_size, len(cifar_train_raw)))
 
-# Apply transforms to each split
-cifar_train = datasets.CIFAR100(root="./data", train=True, transform=transform)
-cifar_val = datasets.CIFAR100(root="./data", train=True, transform=test_transform)
-cifar_test = datasets.CIFAR100(root="./data", train=True, transform=test_transform)
-
-# Create subsets with indices
-from torch.utils.data import Subset
-cifar_train = Subset(cifar_train, train_indices)
-cifar_val = Subset(cifar_val, val_indices)
-cifar_test = Subset(cifar_test, test_indices)
-
-class CIFAR100Dataset(Dataset):
-    def __init__(self, cifar_dataset):
-        self.cifar_dataset = cifar_dataset
-
-    def __len__(self):
-        return len(self.cifar_dataset)
-
-    def __getitem__(self, idx):
-        image, label = self.cifar_dataset[idx]
-        return image, label
-
-train_dataset = CIFAR100Dataset(cifar_train)
-val_dataset = CIFAR100Dataset(cifar_val)
-test_dataset = CIFAR100Dataset(cifar_test)
+# Create datasets
+cifar_train = Subset(datasets.CIFAR100(root="./data", train=True, transform=transform), train_indices)
+cifar_val = Subset(datasets.CIFAR100(root="./data", train=True, transform=test_transform), val_indices)
+cifar_test = datasets.CIFAR100(root="./data", train=False, transform=test_transform)  # Use actual test set
 
 class MLP(nn.Module):
     def __init__(self):
@@ -86,7 +63,7 @@ class MLP(nn.Module):
             ('bn1_2', nn.BatchNorm2d(64)),
             ('relu1_2', nn.ReLU(inplace=True)),
             ('pool1', nn.MaxPool2d(2)),
-            ('drop1', nn.Dropout(0.1)),
+            ('drop1', nn.Dropout(0.25)),
 
             ('conv2_1', nn.Conv2d(64, 128, 3, padding=1)),
             ('bn2_1', nn.BatchNorm2d(128)),
@@ -95,7 +72,7 @@ class MLP(nn.Module):
             ('bn2_2', nn.BatchNorm2d(128)),
             ('relu2_2', nn.ReLU(inplace=True)),
             ('pool2', nn.MaxPool2d(2)),
-            ('drop2', nn.Dropout(0.1)),
+            ('drop2', nn.Dropout(0.25)),
 
             ('conv3_1', nn.Conv2d(128, 256, 3, padding=1)),
             ('bn3_1', nn.BatchNorm2d(256)),
@@ -104,7 +81,7 @@ class MLP(nn.Module):
             ('bn3_2', nn.BatchNorm2d(256)),
             ('relu3_2', nn.ReLU(inplace=True)),
             ('pool3', nn.MaxPool2d(2)),
-            ('drop3', nn.Dropout(0.1)),
+            ('drop3', nn.Dropout(0.25)),
 
             ('conv4_1', nn.Conv2d(256, 512, 3, padding=1)),
             ('bn4_1', nn.BatchNorm2d(512)),
@@ -113,16 +90,16 @@ class MLP(nn.Module):
             ('bn4_2', nn.BatchNorm2d(512)),
             ('relu4_2', nn.ReLU(inplace=True)),
             ('pool4', nn.MaxPool2d(2)),
-            ('drop4', nn.Dropout(0.1)),
+            ('drop4', nn.Dropout(0.25)),
         ]))
 
         self.classifier = nn.Sequential(OrderedDict([
             ('fc1', nn.Linear(512 * 2 * 2, 1024)),
             ('relu1', nn.ReLU(inplace=True)),
-            ('drop1', nn.Dropout(0.1)),
+            ('drop1', nn.Dropout(0.5)),
             ('fc2', nn.Linear(1024, 512)),
             ('relu2', nn.ReLU(inplace=True)),
-            ('drop2', nn.Dropout(0.1)),
+            ('drop2', nn.Dropout(0.3)),
             ('fc3', nn.Linear(512, 100))
         ]))
 
@@ -149,7 +126,7 @@ val_loader = DataLoader(
 )
 
 test_loader = DataLoader(
-    test_dataset,
+    cifar_test,
     batch_size=1024,
     shuffle=False,
     num_workers=2,
@@ -167,8 +144,8 @@ val_f1 = torchmetrics.F1Score(task="multiclass", num_classes=num_classes, averag
 
 
 mlp = MLP().to(device)
-if hasattr(torch, 'compile'):
-    mlp = torch.compile(mlp)
+# if hasattr(torch, 'compile'):
+#     mlp = torch.compile(mlp)
 
 num_epochs = 50
 
@@ -183,7 +160,7 @@ loss_function = nn.CrossEntropyLoss()
 optimizer = torch.optim.AdamW(
     mlp.parameters(),
     lr=1e-3,  # This will be the max_lr
-    weight_decay=1e-2
+    weight_decay=1e-3
 )
 # optimizer = torch.optim.SGD(mlp.parameters(), lr=1e-3)
 
@@ -227,7 +204,7 @@ for epoch in range(num_epochs):
         current_loss += loss.item()
         num_batches += 1
         train_accuracy.update(outputs.detach(), targets)
-        
+
         # Add progress monitoring
         if i % 50 == 0:
             print(f'Batch {i}/{len(train_loader)}, Loss: {loss.item():.4f}')
@@ -294,7 +271,7 @@ def prune_and_finetune_model(model, amount=0.3, finetune_epochs=5):
     for name, module in model.named_modules():
         if isinstance(module, nn.Conv2d):
             prune.ln_structured(module, name="weight", amount=amount, n=2, dim=0)
-    
+
     optimizer.param_groups[0]['lr'] = 1e-5
 
     for epoch in range(finetune_epochs):
@@ -310,7 +287,7 @@ def prune_and_finetune_model(model, amount=0.3, finetune_epochs=5):
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
-            optimizer.zero_grad(set_to_none=True)    
+            optimizer.zero_grad(set_to_none=True)
 
         print(f"Fine-tuning epoch {epoch+1}/{finetune_epochs} complete.")
 
@@ -319,7 +296,7 @@ def prune_and_finetune_model(model, amount=0.3, finetune_epochs=5):
         if isinstance(module, nn.Conv2d):
             prune.remove(module, 'weight')
 
-    return model        
+    return model
 
 def fuse_model(model):
     """
@@ -337,7 +314,7 @@ def fuse_model(model):
                 if (isinstance(layer_list[i], nn.Conv2d) and
                     isinstance(layer_list[i + 1], nn.BatchNorm2d) and
                     isinstance(layer_list[i + 2], nn.ReLU)):
-                    
+
                     # Construct the full string names for fuse_modules
                     modules_to_fuse.append([
                         f'{name}.{layer_names[i]}',
@@ -352,7 +329,7 @@ def fuse_model(model):
         torch.quantization.fuse_modules(model, modules_to_fuse, inplace=True)
     return model
 
-mlp = prune_and_finetune_model(mlp, amount=0.4, finetune_epochs=5)
+# mlp = prune_and_finetune_model(mlp, amount=0.4, finetune_epochs=5)
 
 print("\n--- Saving Trained Model ---")
 
@@ -361,7 +338,7 @@ mlp.cpu()
 
 torch.save({
     'model_state_dict': mlp.state_dict(),
-    'model_architecture': 'MLP', 
+    'model_architecture': 'MLP',
     'num_classes': 100,
     'input_size': (3, 32, 32),
     'epoch': num_epochs,
@@ -370,10 +347,21 @@ torch.save({
 print("GPU-trained model saved as 'trained_model_gpu.pth'")
 
 def evaluate_test_set():
-    mlp.eval()
+    # Load the saved model
+    loaded_model_state = torch.load('trained_model_gpu.pth')
 
-    fused_mlp = fuse_model(mlp)
-    print("Model after fusion:\n", fused_mlp)    
+    # Recreate the model architecture
+    loaded_mlp = MLP()
+
+    # Load the state dictionary
+    loaded_mlp.load_state_dict(loaded_model_state['model_state_dict'])
+
+    # Move the loaded model to the appropriate device
+    loaded_mlp.to(device)
+    loaded_mlp.eval()
+
+    fused_mlp = fuse_model(loaded_mlp)
+    print("Model after fusion:\n", fused_mlp)
 
     test_accuracy = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes).to(device)
     test_precision = torchmetrics.Precision(task="multiclass", num_classes=num_classes, average='macro').to(device)
@@ -397,13 +385,13 @@ def evaluate_test_set():
                 test_targets = test_targets.to(device)
 
                 with torch.profiler.record_function("model_inference"): # FIX: Use torch.profiler.record_function
-                    test_outputs = mlp(test_inputs)
+                    test_outputs = loaded_mlp(test_inputs)
 
                 test_accuracy.update(test_outputs, test_targets)
                 test_precision.update(test_outputs, test_targets)
                 test_recall.update(test_outputs, test_targets)
                 test_f1.update(test_outputs, test_targets)
-                
+
                 profiler.step()
 
     test_acc = test_accuracy.compute()

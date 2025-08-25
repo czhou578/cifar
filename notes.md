@@ -1,26 +1,46 @@
-Adagrad:
+**Adagrad**:
 
 Accumulates all past gradients forever
 Learning rate monotonically decreases over time
 Can become too slow or stop learning entirely
 Good for sparse gradients/features
 
-Adam:
+**AdamW**:
 
 Uses exponential moving averages of gradients
 Maintains adaptive learning rates that don't vanish
 Combines momentum + adaptive learning rates
 Better convergence properties
 
-CrossEntropyLoss is the standard choice for multi-class classification as it:
+**Weight Decay**
+https://towardsdatascience.com/weight-decay-and-its-peculiar-effects-66e0aee3e7b8/
 
-- label smoothing: Whenever a classification neural network suffers from overfitting and/or overconfidence, we can try label smoothing. It restrains the largest logit from becoming much bigger than the rest.
+## Why use for CIFAR 100?
+
+- Instead of incorporating the penalty into the loss, AdamW applies weight decay directly to the parameters after the adaptive gradient update, ensuring that the regularization is not influenced by the adaptive learning rate dynamics.
+
+CrossEntropyLoss is the standard choice for multi-class classification.
+
+## Label Smoothing
+
+**label smoothing**: Whenever a classification neural network suffers from overfitting and/or overconfidence, we can try label smoothing. It restrains the largest logit from becoming much bigger than the rest.
+
+For example, [1, 0, 0] may become [0.9, 0.5, 0.5]
+
+When to use it:
+Reduces overfitting, enhances model calibration, boosts robustness
+
+When not to use it:
+
+If your image labels are highly accurate and noise-free, smoothing might unnecessarily introduce artificial uncertainty, potentially harming accuracy or slowing convergence without benefits.
+
+In tasks where the model needs to abstain from predicting on uncertain inputs (e.g., rejecting low-confidence samples), smoothing can worsen this by making confident predictions less distinguishable from uncertain ones.
 
 Handles probability distributions across classes
 Works with integer class labels (0-99 for CIFAR-100)
 Includes softmax activation internally
 
-Pytorch Autograd Engine Architecture
+## Pytorch Autograd Engine Architecture
 
 1. Function (base class for all diff. operations), Node, Edge (connects nodes)
 2. Topological sorting of the graph when execute is called
@@ -47,6 +67,8 @@ Building CNN backbone would improve NN:
 **2D Batch Norm**
 
 - How it works: For each channel in the feature map, it calculates the mean and standard deviation across all the examples in the current mini-batch. It then normalizes the activations to have a mean of 0 and a standard deviation of 1. It also has learnable parameters to scale and shift the result. This helps to stabilize and accelerate the training process.
+
+Alternatives to 2D Batch Norm:
 
 ---
 

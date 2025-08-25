@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 import logging
 from pathlib import Path
 
@@ -9,6 +10,11 @@ from config import MODEL_PATH, LOG_LEVEL
 
 logging.basicConfig(level=LOG_LEVEL)
 logger = logging.getLogger(__name__)
+
+origins = [
+    "http://localhost",
+    "http://localhost:3000"
+]
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -38,6 +44,14 @@ app = FastAPI(
     description="backend for images",
     version="1.0.0",
     lifespan=lifespan
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(inference_router, prefix="/api/v1", tags=["inference"])
