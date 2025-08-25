@@ -354,6 +354,21 @@ def fuse_model(model):
 
 mlp = prune_and_finetune_model(mlp, amount=0.4, finetune_epochs=5)
 
+print("\n--- Saving Trained Model ---")
+
+# IMPORTANT: Move model to CPU before saving for cross-device compatibility
+mlp.cpu()
+
+torch.save({
+    'model_state_dict': mlp.state_dict(),
+    'model_architecture': 'MLP', 
+    'num_classes': 100,
+    'input_size': (3, 32, 32),
+    'epoch': num_epochs,
+}, 'trained_model_gpu.pth')
+
+print("GPU-trained model saved as 'trained_model_gpu.pth'")
+
 def evaluate_test_set():
     mlp.eval()
 

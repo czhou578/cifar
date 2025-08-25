@@ -3,6 +3,9 @@ from fastapi.responses import JSONResponse
 import logging
 from typing import List, Dict, Any
 
+from models.model_loader import model_loader
+from utils.preprocessing import preprocess_image
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -18,7 +21,7 @@ async def predict_image(file: UploadFile = File(...), top_k: int = Query(default
             raise HTTPException(status_code=400, detail="File must be an image")
 
         image_bytes = await file.read()
-        image_tensor = preprocess(image_bytes)
+        image_tensor = preprocess_image(image_bytes)
 
         predictions = model_loader.predict(image_tensor, top_k=top_k)
 

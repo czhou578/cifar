@@ -249,7 +249,7 @@ if __name__ == '__main__':
     except:
         pass
 
-    num_epochs = 20
+    num_epochs = 30
     loss_function = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(mlp.parameters(), lr=1e-3, weight_decay=1e-2)
 
