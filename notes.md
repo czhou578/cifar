@@ -14,6 +14,8 @@ Better convergence properties
 
 CrossEntropyLoss is the standard choice for multi-class classification as it:
 
+- label smoothing: Whenever a classification neural network suffers from overfitting and/or overconfidence, we can try label smoothing. It restrains the largest logit from becoming much bigger than the rest.
+
 Handles probability distributions across classes
 Works with integer class labels (0-99 for CIFAR-100)
 Includes softmax activation internally
@@ -59,11 +61,6 @@ The key insight: ReLU decides what constitutes a "feature detection" (positive v
 
 Things to add later:
 
-Fuse modalities: Create a custom nn.Module for multimodal fusion (e.g., attention-based concatenation).
-Handle dynamic shapes: Ensure model handles variable text lengths with padding/masking.
-Why not add multiple layers to the nn.Sequential?
-Early stopping based on validation loss
-
 num_workers = 4 for dataloaders
 
 ```python
@@ -84,13 +81,13 @@ Gradient Tracking: All registered parameters participate in backpropagation
 
 - Forward hooks are callback functions that execute during the forward pass, allowing you to inspect or modify intermediate computations.
 
-**Pin Memory**
+**Dataloader**
 
 - Pin memory refers to allocating memory in a way that prevents the operating system from swapping it to disk (paging). Pinned memory is a limited system resource. Using too much can cause system instability.
 
-**Persistent Workers**
-
 - keep DataLoader worker processes alive between epochs instead of recreating them. This eliminates creation of new processes every cpoch and is memory efficient.
+
+- Prefetch Factor means prefetch more batches
 
 **Ablation Tests For Loss**
 
@@ -104,6 +101,45 @@ Gradient Tracking: All registered parameters participate in backpropagation
 **Multimodal Contrastive Loss**
 
 The core principle involves bringing similar instances (positive pairs) closer together in an embedding space while pushing dissimilar instances (negative pairs) farther apart. This is achieved by defining a loss function that penalizes the model when the distance between positive pairs exceeds a predefined margin threshold, thereby encouraging the model to capture semantic relationships between modalities.
+
+**Fuse Model**
+
+Combines multiple layer operations into a single kernel, instead of multiple intermediary memory allocations.
+
+Reduces the number of memory transfers between GPU and memory, and less overhead per operation. Quantized operations are much faster when fused.
+
+1. The Effect of Fusing:
+
+- Fusing bakes the BatchNorm parameters (the learned gamma and beta along with the final running_mean and running_var) directly into the weights and bias of the preceding Conv2d layer.
+
+If you were to fuse during training, you would destroy the dynamic, per-batch normalization. The BatchNorm layer's stabilizing effect would be gone, and the model would be trying to learn with a fixed, stale normalization that doesn't adapt to each new batch. This would severely destabilize training and prevent the model from converging.
+
+Layers have to be consecutive.
+
+```python
+   torch.quantization.fuse_modules
+```
+
+**OneCycleLR**
+
+- prevents early gradient explosions with large models
+- Escapes local minima quickly, accelerates training
+- Low LR at end.
+
+Scale LR based on effective batch size.
+
+max_lr: choice is critical - too high causes instability
+pct_start: affects training dynamics
+
+**Accumulation Steps**
+
+- accumulate gradients from multiple batches and then update once.
+
+Benefits of large batches:
+
+- less noisy gradient estimates
+- smoother loss curves, and generalizes better
+- Batchnorm computes statistics on the smaller batches, but not effective batch.
 
 **Autograd loss backward prop**
 
@@ -162,16 +198,10 @@ Validation - Loss: 2.0236, Accuracy: 0.4848
 Validation - Precision: 0.4847, Recall: 0.4877, F1: 0.4813
 Training has completed
 
-**Model Fusing**: merges the mathematical operations of these layers into a single layer. Should be done after traininga and before eval.
-
 1. Why It Breaks Training
    The core of the issue lies in how BatchNorm2d works.
 
 During Training (model.train() mode): BatchNorm is a dynamic layer. It normalizes the output of the convolution layer using the mean and standard deviation of the current mini-batch. It also updates its internal running_mean and running_var statistics with a moving average. This per-batch normalization is crucial for stabilizing the learning process, reducing internal covariate shift, and allowing for higher learning rates.
-
-The Effect of Fusing: Fusing bakes the BatchNorm parameters (the learned gamma and beta along with the final running_mean and running_var) directly into the weights and bias of the preceding Conv2d layer.
-
-If you were to fuse during training, you would destroy the dynamic, per-batch normalization. The BatchNorm layer's stabilizing effect would be gone, and the model would be trying to learn with a fixed, stale normalization that doesn't adapt to each new batch. This would severely destabilize training and prevent the model from converging.
 
 The Opportunity for Fusion: Since a Conv2d layer is also a linear operation, and an eval() mode BatchNorm2d is another linear operation, their math can be merged. You can pre-calculate a new set of weights and a new bias for the Conv2d layer that produces the exact same output as the original Conv2d followed by the BatchNorm2d.
 
@@ -195,3 +225,33 @@ Evaluate the final, smaller model.
 how is new max learning rate calculated?
 
 51% CPU result with 20 epochs and gradient accumulation
+
+prefetch factor and persistent_workers only works when num workers > 0
+
+**Torch.backends library**:
+
+.cudnn.benchmark
+
+- First few iterations, cuDNN measures performance for your specific setup. Caches the fastest algorithm found.
+
+* Disable when input sizes are variable, or training runs are short.
+
+.cuda.matmul.allow_tf32
+
+- TF32 is different then FP32 since it is same range but reduced precision.
+
+* Enable on newest GPU, training when speed > precision.
+
+.cudnn.allow_tf32
+
+- Allows cuDNN operations (convolutions, etc.) to use TF32 format on supported hardware. Controls convolutions, pooling, normalization.
+
+Fastest: All optimizations enabled
+↓ benchmark=True + allow_tf32=True
+↓ benchmark=True + allow_tf32=False  
+ ↓ benchmark=False + allow_tf32=True
+Slowest: benchmark=False + allow_tf32=False
+
+**When should I use autocast and mixed precision?**
+
+An asynchronous context manager in Python is an object that allows for the allocation and release of resources within asynchronous code, ensuring reliable setup and teardown logic even if the asynchronous operations encounter errors or interruptions.

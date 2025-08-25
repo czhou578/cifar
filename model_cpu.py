@@ -2,7 +2,6 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets, transforms
 from torch import nn
-# REMOVE: from torchmetrics.classification import Accuracy, Precision, Recall, F1Score
 from collections import OrderedDict
 from torch.utils.data import Subset
 
@@ -42,9 +41,12 @@ def compute_accuracy(metrics):
 
 # Simplified augmentation
 transform = transforms.Compose([
+    transforms.RandomRotation(15),
+    transforms.ColorJitter(0.2, 0.2),
+    transforms.ToTensor(),
+    transforms.RandomErasing(p=0.5, scale=(0.02, 0.1)),
     transforms.RandomHorizontalFlip(p=0.5),
     transforms.RandomCrop(32, padding=4),
-    transforms.ToTensor(),
     transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])
 ])
 
@@ -63,13 +65,11 @@ cifar_train_raw = datasets.CIFAR100(
 
 # Split the raw dataset
 total_size = len(cifar_train_raw)
-train_size = int(0.8 * total_size)
-val_size = int(0.1 * total_size) 
-test_size = total_size - train_size - val_size
+train_size = int(0.9 * total_size)
+val_size = total_size - train_size 
 
 train_indices = list(range(0, train_size))
-val_indices = list(range(train_size, train_size + val_size))
-test_indices = list(range(train_size + val_size, total_size))
+val_indices = list(range(train_size, total_size))
 
 # Apply transforms to each split
 cifar_train = datasets.CIFAR100(root="./data", train=True, transform=transform)
@@ -79,7 +79,6 @@ cifar_test = datasets.CIFAR100(root="./data", train=True, transform=test_transfo
 # Create subsets with indices
 cifar_train = Subset(cifar_train, train_indices)
 cifar_val = Subset(cifar_val, val_indices)
-cifar_test = Subset(cifar_test, test_indices)
 
 class CIFAR100Dataset(Dataset):
     def __init__(self, cifar_dataset):
@@ -91,6 +90,25 @@ class CIFAR100Dataset(Dataset):
     def __getitem__(self, idx):
         image, label = self.cifar_dataset[idx]
         return image, label
+
+class CachedCIFAR100Dataset(Dataset):
+    def __init__(self, cifar_dataset, cache_in_memory=True):
+        self.cifar_dataset = cifar_dataset
+        self.cache = {}
+        
+        if cache_in_memory:
+            print("Caching dataset in memory...")
+            for i in range(len(cifar_dataset)):
+                self.cache[i] = cifar_dataset[i]
+            print("Dataset cached successfully")
+
+    def __len__(self):
+        return len(self.cifar_dataset)
+
+    def __getitem__(self, idx):
+        if idx in self.cache:
+            return self.cache[idx]
+        return self.cifar_dataset[idx]
 
 def fuse_model(model):
     """
@@ -137,9 +155,9 @@ def evaluate_model(model, data_loader, device):
     print(f"Final Test Accuracy: {final_acc:.4f}")
 
 
-train_dataset = CIFAR100Dataset(cifar_train)
-val_dataset = CIFAR100Dataset(cifar_val)
-test_dataset = CIFAR100Dataset(cifar_test)
+train_dataset = CachedCIFAR100Dataset(cifar_train, cache_in_memory=True)
+val_dataset = CachedCIFAR100Dataset(cifar_val, cache_in_memory=False)
+test_dataset = CachedCIFAR100Dataset(cifar_test, cache_in_memory=False)
 
 class MLP(nn.Module):
     def __init__(self):
@@ -186,33 +204,33 @@ class MLP(nn.Module):
 
 train_loader = DataLoader(
     cifar_train,
-    batch_size=128,  # OPTIMIZATION: Smaller batch size for CPU
+    batch_size=64,  # OPTIMIZATION: Smaller batch size for CPU
     shuffle=True,
     num_workers=2,   # OPTIMIZATION: Reduce workers for CPU
     pin_memory=False,
     persistent_workers=True,  # OPTIMIZATION: Keep workers alive
-    prefetch_factor=4
+    prefetch_factor=8
 )
 
 val_loader = DataLoader(
     cifar_val,
-    batch_size=128,  # OPTIMIZATION: Smaller batch size
+    batch_size=64,  # OPTIMIZATION: Smaller batch size
     shuffle=False,
     num_workers=2,   # OPTIMIZATION: Reduce workers
     pin_memory=False,
     persistent_workers=True,
-    prefetch_factor=4
+    prefetch_factor=8
 )
 
 test_loader = DataLoader(
     test_dataset,
-    batch_size=1024,
+    batch_size=64,
     shuffle=False,
     num_workers=4,
-    pin_memory=False
+    pin_memory=False,
+    prefetch_factor=8
 )
 
-# --- WRAP ALL EXECUTION CODE IN THIS BLOCK ---
 if __name__ == '__main__':
     device = 'cpu'
     print(f"Using device: {device}")
@@ -230,10 +248,6 @@ if __name__ == '__main__':
         torch.backends.cpu.enable_onednn_fusion(True)
     except:
         pass
-
-    if hasattr(torch, 'compile'):
-        print("Compiling model for optimization...")
-        mlp = torch.compile(mlp, mode="reduce-overhead")  # Use faster compile mode
 
     num_epochs = 20
     loss_function = nn.CrossEntropyLoss()
@@ -313,6 +327,20 @@ if __name__ == '__main__':
 
     print("Training has completed")
 
+    print("\n--- Saving Trained Model ---")
+
+    torch.save({
+        'model_state_dict': mlp.state_dict(),
+        'model_architecture': 'MLP',
+        'num_classes': 100,
+        'input_size': (3, 32, 32),
+        'epoch': num_epochs,
+        'optimizer_state_dict': optimizer.state_dict(),
+        'scheduler_state_dict': scheduler.state_dict()
+    }, 'trained_model.pth')
+
+    print("Base trained model saved as 'trained_model.pth'")
+
     print("\n--- Preparing Model for QAT ---")
 
     fused_mlp = fuse_model(mlp)
@@ -341,6 +369,10 @@ if __name__ == '__main__':
     fused_mlp.eval()
     quantized_model = torch.quantization.convert(fused_mlp, inplace=False)
 
+    print("\n--- Saving Quantized Model ---")
+    torch.jit.save(torch.jit.script(quantized_model), 'quantized_model.pth')
+    print("Quantized model saved as 'quantized_model.pth'")
+
     print("\n--- Evaluating Final INT8 Model ---")
     evaluate_model(quantized_model, test_loader, device)
 
@@ -364,13 +396,12 @@ if __name__ == '__main__':
 #             inputs, targets = data
 #             inputs, targets = inputs.to(device), targets.to(device)
 
-#             with autocast(device_type='cuda'):
-#                 outputs = model(inputs)
-#                 loss = loss_function(outputs, targets)
+#             outputs = model(inputs)
+#             loss = loss_function(outputs, targets)
 
-#             scaler.scale(loss).backward()
-#             scaler.step(optimizer)
-#             scaler.update()
+#             loss.backward()
+#             optimizer.step()
+
 #             optimizer.zero_grad(set_to_none=True)    
 
 #         print(f"Fine-tuning epoch {epoch+1}/{finetune_epochs} complete.")

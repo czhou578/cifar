@@ -49,3 +49,15 @@ Gradient Accumulation for effective larger batch sizes: This simulates larger ba
 
 optimizer.zero_grad(set_to_none=True): More memory efficient then default gradient zeroing
 prefetch_factor = 4 -> prefetch more batches
+
+@torch.jit.script
+
+Compiles Python to TorchScript: It analyzes your Python function and converts it into TorchScript, which is PyTorch's intermediate representation that can be optimized and run independently of Python.
+
+Optimization: The compiled function runs faster because:
+
+It eliminates Python interpreter overhead
+Performs operator fusion (combines multiple operations into single, optimized kernels)
+Uses more efficient memory access patterns
+Can run in parallel more effectively
+Type Inference: It automatically infers tensor types and shapes, allowing for better optimization
