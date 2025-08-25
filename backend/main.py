@@ -20,7 +20,7 @@ async def lifespan(app: FastAPI):
 
     try:
         if not Path(MODEL_PATH).exists():
-            raise FileNotFoundError(f"File not found")
+            raise FileNotFoundError(f"File not found: {MODEL_PATH}")
         
         model_loader.load_model(MODEL_PATH, device="cpu")
         logger.info("model load success")
@@ -40,7 +40,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-app.include_router(inference_router, prefix="api/v1", tags=["inference"])
+app.include_router(inference_router, prefix="/api/v1", tags=["inference"])
 
 @app.get("/")
 async def root():

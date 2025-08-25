@@ -7,37 +7,60 @@ import logging
 logger = logging.getLogger(__name__)
 
 class MLP(nn.Module):
-    """Same model architecture as your training script"""
+    """Match the architecture that was actually trained"""
     def __init__(self):
         super().__init__()
         self.quant = torch.quantization.QuantStub()
         self.dequant = torch.quantization.DeQuantStub()
         
+        # Use the SAME architecture as your trained model
         self.layers = nn.Sequential(OrderedDict([
-            ('conv1_1', nn.Conv2d(3, 32, 3, padding=1)),
-            ('bn1_1', nn.BatchNorm2d(32)),
+            ('conv1_1', nn.Conv2d(3, 64, 3, padding=1)),      # 64 channels (not 32)
+            ('bn1_1', nn.BatchNorm2d(64)),
             ('relu1_1', nn.ReLU(inplace=True)),
+            ('conv1_2', nn.Conv2d(64, 64, 3, padding=1)),     # Additional layer
+            ('bn1_2', nn.BatchNorm2d(64)),
+            ('relu1_2', nn.ReLU(inplace=True)),
             ('pool1', nn.MaxPool2d(2)),
             ('drop1', nn.Dropout(0.1)),
 
-            ('conv2_1', nn.Conv2d(32, 64, 3, padding=1)),
-            ('bn2_1', nn.BatchNorm2d(64)),
+            ('conv2_1', nn.Conv2d(64, 128, 3, padding=1)),    # 128 channels (not 64)
+            ('bn2_1', nn.BatchNorm2d(128)),
             ('relu2_1', nn.ReLU(inplace=True)),
+            ('conv2_2', nn.Conv2d(128, 128, 3, padding=1)),   # Additional layer
+            ('bn2_2', nn.BatchNorm2d(128)),
+            ('relu2_2', nn.ReLU(inplace=True)),
             ('pool2', nn.MaxPool2d(2)),
             ('drop2', nn.Dropout(0.1)),
 
-            ('conv3_1', nn.Conv2d(64, 128, 3, padding=1)),
-            ('bn3_1', nn.BatchNorm2d(128)),
+            ('conv3_1', nn.Conv2d(128, 256, 3, padding=1)),   # 256 channels (not 128)
+            ('bn3_1', nn.BatchNorm2d(256)),
             ('relu3_1', nn.ReLU(inplace=True)),
+            ('conv3_2', nn.Conv2d(256, 256, 3, padding=1)),   # Additional layer
+            ('bn3_2', nn.BatchNorm2d(256)),
+            ('relu3_2', nn.ReLU(inplace=True)),
             ('pool3', nn.MaxPool2d(2)),
             ('drop3', nn.Dropout(0.1)),
+
+            ('conv4_1', nn.Conv2d(256, 512, 3, padding=1)),   # Additional conv block
+            ('bn4_1', nn.BatchNorm2d(512)),
+            ('relu4_1', nn.ReLU(inplace=True)),
+            ('conv4_2', nn.Conv2d(512, 512, 3, padding=1)),
+            ('bn4_2', nn.BatchNorm2d(512)),
+            ('relu4_2', nn.ReLU(inplace=True)),
+            ('pool4', nn.MaxPool2d(2)),
+            ('drop4', nn.Dropout(0.1)),
         ]))
 
+        # Match the trained classifier architecture
         self.classifier = nn.Sequential(OrderedDict([
-            ('fc1', nn.Linear(128 * 4 * 4, 256)),
+            ('fc1', nn.Linear(512 * 2 * 2, 1024)),           # Larger classifier
             ('relu1', nn.ReLU(inplace=True)),
             ('drop1', nn.Dropout(0.1)),
-            ('fc2', nn.Linear(256, 100))
+            ('fc2', nn.Linear(1024, 512)),
+            ('relu2', nn.ReLU(inplace=True)),
+            ('drop2', nn.Dropout(0.1)),
+            ('fc3', nn.Linear(512, 100))
         ]))
 
     def forward(self, x):

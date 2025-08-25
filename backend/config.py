@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 # Model configuration
-MODEL_PATH = os.getenv("MODEL_PATH", "../models/trained_model_gpu.pth")
+MODEL_PATH = os.getenv("MODEL_PATH", "C:\\Users\\mycol\\WebProjects\\cifar\\backend\\models\\trained_model_gpu.pth")
 DEVICE = os.getenv("DEVICE", "cpu")
 
 # API configuration
