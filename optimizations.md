@@ -61,3 +61,15 @@ Performs operator fusion (combines multiple operations into single, optimized ke
 Uses more efficient memory access patterns
 Can run in parallel more effectively
 Type Inference: It automatically infers tensor types and shapes, allowing for better optimization
+
+Tradeoff between more layers vs more channel output per layer:
+
+More width means allowing the model to learn a richer set of features at each level, which can partially offset depth by capturing more variations in low-level patterns.
+
+Increasing channels lets the model learn more types of low-level features (e.g., 512 variations of edges instead of 128), but it doesn't create higher-level compositions. This could lead to underfitting on complex tasks like CIFAR-100's 100 fine-grained classes, where accuracy might drop 5-15% (e.g., from 60% to 45-55%) due to insufficient abstraction.
+
+Fewer layers mean fewer ReLU activations, reducing the model's ability to approximate complex functions.
+
+Wider shallow nets can overfit more easily (more params in early layers memorize noise) or underfit if the added channels don't capture needed complexity. The original deeper net distributes params across levels, promoting generalization.
+
+Skip connections can mimic depth?

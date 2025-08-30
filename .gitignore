@@ -1,3 +1,4 @@
 data/cifar-100-python.tar.gz
 data/cifar-100-python/train
 frontend/node_modules
+backend/models/trained_model_gpu.pth

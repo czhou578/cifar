@@ -13,6 +13,7 @@ from torch.utils.data import Subset
 torch.backends.cudnn.benchmark = True
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
+torch.set_float32_matmul_precision('high')
 
 # Check GPU memory
 if torch.cuda.is_available():
@@ -20,16 +21,39 @@ if torch.cuda.is_available():
     torch.cuda.empty_cache()
 
 # Simplified augmentation
+# transform = transforms.Compose([
+#     transforms.RandomHorizontalFlip(p=0.5),
+#     transforms.RandomRotation(2.8),
+#     transforms.RandomGrayscale(0.2),
+#     transforms.ColorJitter(0.4, 0.4, 0.4, 0.1),  # Stronger color jitter
+#     transforms.RandomCrop(32, padding=4, padding_mode='reflect'),
+#     transforms.RandAugment(num_ops=2, magnitude=9),
+#     transforms.ToTensor(),
+#     transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761]),
+#     transforms.RandomErasing(p=0.25, scale=(0.02, 0.33))  # Add random erasing
+# ])
+# Replace your current transform with stronger augmentation
+# transform = transforms.Compose([
+#     transforms.RandomCrop(32, padding=4, padding_mode='reflect'),
+#     transforms.RandomHorizontalFlip(p=0.5),
+#     transforms.RandomRotation(15),  # Add rotation
+#     transforms.ColorJitter(0.3, 0.3, 0.3, 0.1),  # Add color jitter
+#     transforms.ToTensor(),
+#     transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761]),
+#     transforms.RandomErasing(p=0.1, scale=(0.02, 0.33))  # Add random erasing
+# ])
+
 transform = transforms.Compose([
-    transforms.RandomHorizontalFlip(p=0.5),
-    transforms.RandomRotation(2.8),
-    transforms.RandomGrayscale(0.2),
-    transforms.ColorJitter(0.4, 0.4, 0.4, 0.1),  # Stronger color jitter
     transforms.RandomCrop(32, padding=4, padding_mode='reflect'),
+    transforms.RandomHorizontalFlip(p=0.5),
+    transforms.RandomRotation(20),                              # Increase from 15 to 20
+    transforms.ColorJitter(0.4, 0.4, 0.4, 0.15),              # Increase from 0.3 to 0.4
+    transforms.RandomGrayscale(p=0.1),                         # Add grayscale augmentation
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761]),
-    transforms.RandomErasing(p=0.25, scale=(0.02, 0.33))  # Add random erasing
+    transforms.RandomErasing(p=0.25, scale=(0.02, 0.33))      # Increase from 0.1 to 0.25
 ])
+
 
 test_transform = transforms.Compose([
     transforms.ToTensor(), # Moved ToTensor before Normalize (good practice)
@@ -56,51 +80,82 @@ class MLP(nn.Module):
     def __init__(self):
         super().__init__()
         self.layers = nn.Sequential(OrderedDict([
-            ('conv1_1', nn.Conv2d(3, 64, 3, padding=1)),
-            ('bn1_1', nn.BatchNorm2d(64)),
+            ('conv1_1', nn.Conv2d(3, 96, 3, padding=1)),      # Increase from 64 to 96
+            ('bn1_1', nn.BatchNorm2d(96)),
             ('relu1_1', nn.ReLU(inplace=True)),
-            ('conv1_2', nn.Conv2d(64, 64, 3, padding=1)),
-            ('bn1_2', nn.BatchNorm2d(64)),
+            ('conv1_2', nn.Conv2d(96, 96, 3, padding=1)),     # Increase from 64 to 96
+            ('bn1_2', nn.BatchNorm2d(96)),
             ('relu1_2', nn.ReLU(inplace=True)),
             ('pool1', nn.MaxPool2d(2)),
             ('drop1', nn.Dropout(0.25)),
 
-            ('conv2_1', nn.Conv2d(64, 128, 3, padding=1)),
-            ('bn2_1', nn.BatchNorm2d(128)),
+            ('conv2_1', nn.Conv2d(96, 192, 3, padding=1)),    # Increase from 128 to 192
+            ('bn2_1', nn.BatchNorm2d(192)),
             ('relu2_1', nn.ReLU(inplace=True)),
-            ('conv2_2', nn.Conv2d(128, 128, 3, padding=1)),
-            ('bn2_2', nn.BatchNorm2d(128)),
+            ('conv2_2', nn.Conv2d(192, 192, 3, padding=1)),   # Increase from 128 to 192
+            ('bn2_2', nn.BatchNorm2d(192)),
             ('relu2_2', nn.ReLU(inplace=True)),
             ('pool2', nn.MaxPool2d(2)),
-            ('drop2', nn.Dropout(0.25)),
+            ('drop2', nn.Dropout(0.3)),                       # Increase from 0.25 to 0.3
+        ]))        
+        # self.layers = nn.Sequential(OrderedDict([
+        #     ('conv1_1', nn.Conv2d(3, 64, 3, padding=1)),
+        #     ('bn1_1', nn.BatchNorm2d(64)),
+        #     ('relu1_1', nn.ReLU(inplace=True)),
+        #     ('conv1_2', nn.Conv2d(64, 64, 3, padding=1)),
+        #     ('bn1_2', nn.BatchNorm2d(64)),
+        #     ('relu1_2', nn.ReLU(inplace=True)),
+        #     ('pool1', nn.MaxPool2d(2)),
+        #     ('drop1', nn.Dropout(0.25)),
 
-            ('conv3_1', nn.Conv2d(128, 256, 3, padding=1)),
-            ('bn3_1', nn.BatchNorm2d(256)),
-            ('relu3_1', nn.ReLU(inplace=True)),
-            ('conv3_2', nn.Conv2d(256, 256, 3, padding=1)),
-            ('bn3_2', nn.BatchNorm2d(256)),
-            ('relu3_2', nn.ReLU(inplace=True)),
-            ('pool3', nn.MaxPool2d(2)),
-            ('drop3', nn.Dropout(0.25)),
+        #     ('conv2_1', nn.Conv2d(64, 128, 3, padding=1)),
+        #     ('bn2_1', nn.BatchNorm2d(128)),
+        #     ('relu2_1', nn.ReLU(inplace=True)),
+        #     ('conv2_2', nn.Conv2d(128, 128, 3, padding=1)),
+        #     ('bn2_2', nn.BatchNorm2d(128)),
+        #     ('relu2_2', nn.ReLU(inplace=True)),
+        #     ('pool2', nn.MaxPool2d(2)),
+        #     ('drop2', nn.Dropout(0.25)),
 
-            ('conv4_1', nn.Conv2d(256, 512, 3, padding=1)),
-            ('bn4_1', nn.BatchNorm2d(512)),
-            ('relu4_1', nn.ReLU(inplace=True)),
-            ('conv4_2', nn.Conv2d(512, 512, 3, padding=1)),
-            ('bn4_2', nn.BatchNorm2d(512)),
-            ('relu4_2', nn.ReLU(inplace=True)),
-            ('pool4', nn.MaxPool2d(2)),
-            ('drop4', nn.Dropout(0.25)),
-        ]))
+        #     # ('conv3_1', nn.Conv2d(128, 256, 3, padding=1)),
+        #     # ('bn3_1', nn.BatchNorm2d(256)),
+        #     # ('relu3_1', nn.ReLU(inplace=True)),
+        #     # ('conv3_2', nn.Conv2d(256, 256, 3, padding=1)),
+        #     # ('bn3_2', nn.BatchNorm2d(256)),
+        #     # ('relu3_2', nn.ReLU(inplace=True)),
+        #     # ('pool3', nn.MaxPool2d(2)),
+        #     # ('drop3', nn.Dropout(0.25)),
+
+        #     # ('conv4_1', nn.Conv2d(256, 512, 3, padding=1)),
+        #     # ('bn4_1', nn.BatchNorm2d(512)),
+        #     # ('relu4_1', nn.ReLU(inplace=True)),
+        #     # ('conv4_2', nn.Conv2d(512, 512, 3, padding=1)),
+        #     # ('bn4_2', nn.BatchNorm2d(512)),
+        #     # ('relu4_2', nn.ReLU(inplace=True)),
+        #     # ('pool4', nn.MaxPool2d(2)),
+        #     # ('drop4', nn.Dropout(0.25)),
+        # ]))
+
+        # self.classifier = nn.Sequential(OrderedDict([
+        #     ('fc1', nn.Linear(128 * 4 * 4, 1024)),
+        #     ('relu1', nn.ReLU(inplace=True)),
+        #     ('drop1', nn.Dropout(0.7)),
+        #     ('fc2', nn.Linear(1024, 512)),
+        #     ('relu2', nn.ReLU(inplace=True)),
+        #     ('drop2', nn.Dropout(0.5)),
+        #     ('fc3', nn.Linear(512, 100))
+        # ]))
 
         self.classifier = nn.Sequential(OrderedDict([
-            ('fc1', nn.Linear(512 * 2 * 2, 1024)),
+            ('fc1', nn.Linear(192 * 8 * 8, 2048)),    # Change from 128*4*4 to 192*8*8, increase to 2048
+            ('bn1', nn.BatchNorm1d(2048)),             # Add BatchNorm
             ('relu1', nn.ReLU(inplace=True)),
-            ('drop1', nn.Dropout(0.5)),
-            ('fc2', nn.Linear(1024, 512)),
+            ('drop1', nn.Dropout(0.5)),                # Reduce from 0.7 to 0.5
+            ('fc2', nn.Linear(2048, 1024)),            # Increase from 512 to 1024
+            ('bn2', nn.BatchNorm1d(1024)),             # Add BatchNorm
             ('relu2', nn.ReLU(inplace=True)),
-            ('drop2', nn.Dropout(0.3)),
-            ('fc3', nn.Linear(512, 100))
+            ('drop2', nn.Dropout(0.3)),                # Reduce from 0.5 to 0.3
+            ('fc3', nn.Linear(1024, 100))
         ]))
 
     def forward(self, x):
@@ -114,7 +169,9 @@ train_loader = DataLoader(
     batch_size=256,
     shuffle=True,
     num_workers=2,
-    pin_memory=True
+    pin_memory=True,
+    persistent_workers=True,
+    prefetch_factor=4
 )
 
 val_loader = DataLoader(
@@ -122,15 +179,17 @@ val_loader = DataLoader(
     batch_size=256,
     shuffle=False,
     num_workers=2,
-    pin_memory=True
+    pin_memory=True,
+    persistent_workers=True,
 )
 
 test_loader = DataLoader(
     cifar_test,
-    batch_size=1024,
+    batch_size=256,
     shuffle=False,
     num_workers=2,
-    pin_memory=True
+    pin_memory=True,
+    persistent_workers=True,
 )
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
@@ -144,37 +203,52 @@ val_f1 = torchmetrics.F1Score(task="multiclass", num_classes=num_classes, averag
 
 
 mlp = MLP().to(device)
-# if hasattr(torch, 'compile'):
-#     mlp = torch.compile(mlp)
+if hasattr(torch, 'compile'):
+    mlp = torch.compile(mlp)
+    print("Model compiled for faster execution")
 
-num_epochs = 50
-
+num_epochs = 80
 loss_function = nn.CrossEntropyLoss()
+
 # optimizer = torch.optim.AdamW(
 #     mlp.parameters(),
-#     lr=1e-4,  # Reduced from 1e-3
-#     weight_decay=1e-4,
-#     eps=1e-8
+#     lr=1e-3,  # This will be the max_lr
+#     weight_decay=5e-3
+# )
+
+# new_max_lr = 1e-3 * (1024 / 128)**0.25
+
+# scheduler = torch.optim.lr_scheduler.OneCycleLR(
+#     optimizer,
+#     max_lr=new_max_lr,  # Set a reasonable max learning rate
+#     epochs=num_epochs,
+#     steps_per_epoch=len(train_loader),
+#     pct_start=0.1, # Use a smaller warmup phase
+#     anneal_strategy='cos'
 # )
 
 optimizer = torch.optim.AdamW(
     mlp.parameters(),
-    lr=1e-3,  # This will be the max_lr
-    weight_decay=1e-3
+    lr=2e-3,      # Increase from 1e-3 to 2e-3
+    weight_decay=1e-3  # Reduce from 5e-3 to 1e-3
 )
-# optimizer = torch.optim.SGD(mlp.parameters(), lr=1e-3)
 
-new_max_lr = 1e-3 * (256 / 128)**0.5 # Sqrt scaling rule: ~1.414e-3
+new_max_lr = 2e-3 * (256 / 128)**0.25
 
 scheduler = torch.optim.lr_scheduler.OneCycleLR(
     optimizer,
-    max_lr=new_max_lr,  # Set a reasonable max learning rate
+    max_lr=new_max_lr,
     epochs=num_epochs,
     steps_per_epoch=len(train_loader),
-    pct_start=0.1, # Use a smaller warmup phase
+    pct_start=0.3,  # Increase from 0.1 to 0.3
     anneal_strategy='cos'
 )
+
 scaler = GradScaler()
+
+best_val_loss = float('inf')
+patience = 10
+patience_counter = 0
 
 for epoch in range(num_epochs):
     print(f'Starting Epoch {epoch+1}')
@@ -215,46 +289,65 @@ for epoch in range(num_epochs):
     print(f'Epoch {epoch+1} finished')
     print(f'Training - Loss: {avg_train_loss:.4f}, Accuracy: {train_acc:.4f}')
 
-    mlp.eval()
-    val_loss = 0.0
-    val_batches = 0
+    if (epoch + 1) % 2 == 0:
+        mlp.eval()
+        val_loss = 0.0
+        val_batches = 0
 
-    print(f'Epoch {epoch+1} finished')
-    print(f'average training loss is {avg_train_loss:.4f}')
+        print(f'Epoch {epoch+1} finished')
+        print(f'average training loss is {avg_train_loss:.4f}')
 
-    val_accuracy.reset()
-    val_precision.reset()
-    val_recall.reset()
-    val_f1.reset()
+        val_accuracy.reset()
+        val_precision.reset()
+        val_recall.reset()
+        val_f1.reset()
 
-    with torch.no_grad():
-        for val_data in val_loader:
-            val_inputs, val_targets = val_data
-            val_inputs = val_inputs.to(device)  # Convert inputs to FP16
-            val_targets = val_targets.to(device)
+        with torch.no_grad():
+            for val_data in val_loader:
+                val_inputs, val_targets = val_data
+                val_inputs = val_inputs.to(device)  # Convert inputs to FP16
+                val_targets = val_targets.to(device)
 
-            val_outputs = mlp(val_inputs)
-            val_batch_loss = loss_function(val_outputs, val_targets)
+                val_outputs = mlp(val_inputs)
+                val_batch_loss = loss_function(val_outputs, val_targets)
 
-            val_loss += val_batch_loss.item()
-            val_batches += 1
+                val_loss += val_batch_loss.item()
+                val_batches += 1
 
-            val_accuracy.update(val_outputs, val_targets)
-            val_precision.update(val_outputs, val_targets)
-            val_recall.update(val_outputs, val_targets)
-            val_f1.update(val_outputs, val_targets)
+                val_accuracy.update(val_outputs, val_targets)
+                val_precision.update(val_outputs, val_targets)
+                val_recall.update(val_outputs, val_targets)
+                val_f1.update(val_outputs, val_targets)
 
-    avg_val_loss = val_loss / val_batches
-    val_acc = val_accuracy.compute()
-    val_prec = val_precision.compute()
-    val_rec = val_recall.compute()
-    val_f1_score = val_f1.compute()
+        avg_val_loss = val_loss / val_batches
+        val_acc = val_accuracy.compute()
+        val_prec = val_precision.compute()
+        val_rec = val_recall.compute()
+        val_f1_score = val_f1.compute()
 
-    print(f'Epoch {epoch+1} finished')
-    print(f'Training - Loss: {avg_train_loss:.4f}, Accuracy: {train_acc:.4f}')
-    print(f'Validation - Loss: {avg_val_loss:.4f}, Accuracy: {val_acc:.4f}')
-    print(f'Validation - Precision: {val_prec:.4f}, Recall: {val_rec:.4f}, F1: {val_f1_score:.4f}')
+        print(f'Epoch {epoch+1} finished')
+        print(f'Training - Loss: {avg_train_loss:.4f}, Accuracy: {train_acc:.4f}')
+        print(f'Validation - Loss: {avg_val_loss:.4f}, Accuracy: {val_acc:.4f}')
+        print(f'Validation - Precision: {val_prec:.4f}, Recall: {val_rec:.4f}, F1: {val_f1_score:.4f}')
 
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            patience_counter = 0
+            # Save best model
+            torch.save({
+                'model_state_dict': mlp.state_dict(),
+                'model_architecture': 'MLP',
+                'num_classes': 100,
+                'input_size': (3, 32, 32),
+                'epoch': epoch,
+                'val_loss': avg_val_loss
+            }, 'best_model.pth')
+        else:
+            patience_counter += 1
+            
+        if patience_counter >= patience:
+            print(f"Early stopping at epoch {epoch+1}")
+            break
 
 print("Training has completed")
 

@@ -15,52 +15,36 @@ class MLP(nn.Module):
         
         # Use the SAME architecture as your trained model
         self.layers = nn.Sequential(OrderedDict([
-            ('conv1_1', nn.Conv2d(3, 64, 3, padding=1)),      # 64 channels (not 32)
-            ('bn1_1', nn.BatchNorm2d(64)),
+            ('conv1_1', nn.Conv2d(3, 96, 3, padding=1)),      # Increase from 64 to 96
+            ('bn1_1', nn.BatchNorm2d(96)),
             ('relu1_1', nn.ReLU(inplace=True)),
-            ('conv1_2', nn.Conv2d(64, 64, 3, padding=1)),     # Additional layer
-            ('bn1_2', nn.BatchNorm2d(64)),
+            ('conv1_2', nn.Conv2d(96, 96, 3, padding=1)),     # Increase from 64 to 96
+            ('bn1_2', nn.BatchNorm2d(96)),
             ('relu1_2', nn.ReLU(inplace=True)),
             ('pool1', nn.MaxPool2d(2)),
-            ('drop1', nn.Dropout(0.1)),
+            ('drop1', nn.Dropout(0.25)),
 
-            ('conv2_1', nn.Conv2d(64, 128, 3, padding=1)),    # 128 channels (not 64)
-            ('bn2_1', nn.BatchNorm2d(128)),
+            ('conv2_1', nn.Conv2d(96, 192, 3, padding=1)),    # Increase from 128 to 192
+            ('bn2_1', nn.BatchNorm2d(192)),
             ('relu2_1', nn.ReLU(inplace=True)),
-            ('conv2_2', nn.Conv2d(128, 128, 3, padding=1)),   # Additional layer
-            ('bn2_2', nn.BatchNorm2d(128)),
+            ('conv2_2', nn.Conv2d(192, 192, 3, padding=1)),   # Increase from 128 to 192
+            ('bn2_2', nn.BatchNorm2d(192)),
             ('relu2_2', nn.ReLU(inplace=True)),
             ('pool2', nn.MaxPool2d(2)),
-            ('drop2', nn.Dropout(0.1)),
-
-            ('conv3_1', nn.Conv2d(128, 256, 3, padding=1)),   # 256 channels (not 128)
-            ('bn3_1', nn.BatchNorm2d(256)),
-            ('relu3_1', nn.ReLU(inplace=True)),
-            ('conv3_2', nn.Conv2d(256, 256, 3, padding=1)),   # Additional layer
-            ('bn3_2', nn.BatchNorm2d(256)),
-            ('relu3_2', nn.ReLU(inplace=True)),
-            ('pool3', nn.MaxPool2d(2)),
-            ('drop3', nn.Dropout(0.1)),
-
-            ('conv4_1', nn.Conv2d(256, 512, 3, padding=1)),   # Additional conv block
-            ('bn4_1', nn.BatchNorm2d(512)),
-            ('relu4_1', nn.ReLU(inplace=True)),
-            ('conv4_2', nn.Conv2d(512, 512, 3, padding=1)),
-            ('bn4_2', nn.BatchNorm2d(512)),
-            ('relu4_2', nn.ReLU(inplace=True)),
-            ('pool4', nn.MaxPool2d(2)),
-            ('drop4', nn.Dropout(0.1)),
+            ('drop2', nn.Dropout(0.3)),                       # Increase from 0.25 to 0.3
         ]))
 
         # Match the trained classifier architecture
         self.classifier = nn.Sequential(OrderedDict([
-            ('fc1', nn.Linear(512 * 2 * 2, 1024)),           # Larger classifier
+            ('fc1', nn.Linear(192 * 8 * 8, 2048)),    # Change from 128*4*4 to 192*8*8, increase to 2048
+            ('bn1', nn.BatchNorm1d(2048)),             # Add BatchNorm
             ('relu1', nn.ReLU(inplace=True)),
-            ('drop1', nn.Dropout(0.1)),
-            ('fc2', nn.Linear(1024, 512)),
+            ('drop1', nn.Dropout(0.5)),                # Reduce from 0.7 to 0.5
+            ('fc2', nn.Linear(2048, 1024)),            # Increase from 512 to 1024
+            ('bn2', nn.BatchNorm1d(1024)),             # Add BatchNorm
             ('relu2', nn.ReLU(inplace=True)),
-            ('drop2', nn.Dropout(0.1)),
-            ('fc3', nn.Linear(512, 100))
+            ('drop2', nn.Dropout(0.3)),                # Reduce from 0.5 to 0.3
+            ('fc3', nn.Linear(1024, 100))
         ]))
 
     def forward(self, x):
@@ -91,16 +75,21 @@ class ModelLoader:
                 self.model = MLP()
                 checkpoint = torch.load(model_path, map_location=self.device)
                 
-                # Handle different checkpoint formats
-                if isinstance(checkpoint, dict):
-                    if 'model_state_dict' in checkpoint:
-                        self.model.load_state_dict(checkpoint['model_state_dict'])
-                    elif 'state_dict' in checkpoint:
-                        self.model.load_state_dict(checkpoint['state_dict'])
-                    else:
-                        self.model.load_state_dict(checkpoint)
-                else:
-                    self.model.load_state_dict(checkpoint)
+                state_dict = checkpoint['model_state_dict']
+
+                if any(key.startswith('_orig_mod.') for key in state_dict.keys()):
+                    print("Detected compiled model state dict - extracting original weights...")
+                    # Remove '_orig_mod.' prefix from all keys
+                    cleaned_state_dict = {}
+                    for key, value in state_dict.items():
+                        if key.startswith('_orig_mod.'):
+                            new_key = key.replace('_orig_mod.', '')
+                            cleaned_state_dict[new_key] = value
+                        else:
+                            cleaned_state_dict[key] = value
+                    state_dict = cleaned_state_dict
+                
+                self.model.load_state_dict(state_dict)
             else:
                 # Load quantized model
                 self.model = torch.jit.load(model_path, map_location=self.device)
