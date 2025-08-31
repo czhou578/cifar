@@ -73,3 +73,5 @@ Fewer layers mean fewer ReLU activations, reducing the model's ability to approx
 Wider shallow nets can overfit more easily (more params in early layers memorize noise) or underfit if the added channels don't capture needed complexity. The original deeper net distributes params across levels, promoting generalization.
 
 Skip connections can mimic depth?
+
+Test Time Augmentation

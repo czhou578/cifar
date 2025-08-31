@@ -1,47 +1,25 @@
 import torch
-import torch.nn.utils as utils
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import  DataLoader
 from torchvision import datasets, transforms
 from torch import nn
 from torch.amp import GradScaler, autocast
-import torch.nn.utils.prune as prune
 import torchmetrics
-import torch.profiler
 from collections import OrderedDict
 from torch.utils.data import Subset
+import traceback
 
 torch.backends.cudnn.benchmark = True
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.set_float32_matmul_precision('high')
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"Using device: {device}")
+
 # Check GPU memory
 if torch.cuda.is_available():
     print(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
     torch.cuda.empty_cache()
-
-# Simplified augmentation
-# transform = transforms.Compose([
-#     transforms.RandomHorizontalFlip(p=0.5),
-#     transforms.RandomRotation(2.8),
-#     transforms.RandomGrayscale(0.2),
-#     transforms.ColorJitter(0.4, 0.4, 0.4, 0.1),  # Stronger color jitter
-#     transforms.RandomCrop(32, padding=4, padding_mode='reflect'),
-#     transforms.RandAugment(num_ops=2, magnitude=9),
-#     transforms.ToTensor(),
-#     transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761]),
-#     transforms.RandomErasing(p=0.25, scale=(0.02, 0.33))  # Add random erasing
-# ])
-# Replace your current transform with stronger augmentation
-# transform = transforms.Compose([
-#     transforms.RandomCrop(32, padding=4, padding_mode='reflect'),
-#     transforms.RandomHorizontalFlip(p=0.5),
-#     transforms.RandomRotation(15),  # Add rotation
-#     transforms.ColorJitter(0.3, 0.3, 0.3, 0.1),  # Add color jitter
-#     transforms.ToTensor(),
-#     transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761]),
-#     transforms.RandomErasing(p=0.1, scale=(0.02, 0.33))  # Add random erasing
-# ])
 
 transform = transforms.Compose([
     transforms.RandomCrop(32, padding=4, padding_mode='reflect'),
@@ -53,7 +31,6 @@ transform = transforms.Compose([
     transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761]),
     transforms.RandomErasing(p=0.25, scale=(0.02, 0.33))      # Increase from 0.1 to 0.25
 ])
-
 
 test_transform = transforms.Compose([
     transforms.ToTensor(), # Moved ToTensor before Normalize (good practice)
@@ -98,53 +75,6 @@ class MLP(nn.Module):
             ('pool2', nn.MaxPool2d(2)),
             ('drop2', nn.Dropout(0.3)),                       # Increase from 0.25 to 0.3
         ]))        
-        # self.layers = nn.Sequential(OrderedDict([
-        #     ('conv1_1', nn.Conv2d(3, 64, 3, padding=1)),
-        #     ('bn1_1', nn.BatchNorm2d(64)),
-        #     ('relu1_1', nn.ReLU(inplace=True)),
-        #     ('conv1_2', nn.Conv2d(64, 64, 3, padding=1)),
-        #     ('bn1_2', nn.BatchNorm2d(64)),
-        #     ('relu1_2', nn.ReLU(inplace=True)),
-        #     ('pool1', nn.MaxPool2d(2)),
-        #     ('drop1', nn.Dropout(0.25)),
-
-        #     ('conv2_1', nn.Conv2d(64, 128, 3, padding=1)),
-        #     ('bn2_1', nn.BatchNorm2d(128)),
-        #     ('relu2_1', nn.ReLU(inplace=True)),
-        #     ('conv2_2', nn.Conv2d(128, 128, 3, padding=1)),
-        #     ('bn2_2', nn.BatchNorm2d(128)),
-        #     ('relu2_2', nn.ReLU(inplace=True)),
-        #     ('pool2', nn.MaxPool2d(2)),
-        #     ('drop2', nn.Dropout(0.25)),
-
-        #     # ('conv3_1', nn.Conv2d(128, 256, 3, padding=1)),
-        #     # ('bn3_1', nn.BatchNorm2d(256)),
-        #     # ('relu3_1', nn.ReLU(inplace=True)),
-        #     # ('conv3_2', nn.Conv2d(256, 256, 3, padding=1)),
-        #     # ('bn3_2', nn.BatchNorm2d(256)),
-        #     # ('relu3_2', nn.ReLU(inplace=True)),
-        #     # ('pool3', nn.MaxPool2d(2)),
-        #     # ('drop3', nn.Dropout(0.25)),
-
-        #     # ('conv4_1', nn.Conv2d(256, 512, 3, padding=1)),
-        #     # ('bn4_1', nn.BatchNorm2d(512)),
-        #     # ('relu4_1', nn.ReLU(inplace=True)),
-        #     # ('conv4_2', nn.Conv2d(512, 512, 3, padding=1)),
-        #     # ('bn4_2', nn.BatchNorm2d(512)),
-        #     # ('relu4_2', nn.ReLU(inplace=True)),
-        #     # ('pool4', nn.MaxPool2d(2)),
-        #     # ('drop4', nn.Dropout(0.25)),
-        # ]))
-
-        # self.classifier = nn.Sequential(OrderedDict([
-        #     ('fc1', nn.Linear(128 * 4 * 4, 1024)),
-        #     ('relu1', nn.ReLU(inplace=True)),
-        #     ('drop1', nn.Dropout(0.7)),
-        #     ('fc2', nn.Linear(1024, 512)),
-        #     ('relu2', nn.ReLU(inplace=True)),
-        #     ('drop2', nn.Dropout(0.5)),
-        #     ('fc3', nn.Linear(512, 100))
-        # ]))
 
         self.classifier = nn.Sequential(OrderedDict([
             ('fc1', nn.Linear(192 * 8 * 8, 2048)),    # Change from 128*4*4 to 192*8*8, increase to 2048
@@ -191,8 +121,6 @@ test_loader = DataLoader(
     pin_memory=True,
     persistent_workers=True,
 )
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"Using device: {device}")
 
 num_classes = 100
 train_accuracy = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes).to(device)
@@ -209,23 +137,6 @@ if hasattr(torch, 'compile'):
 
 num_epochs = 80
 loss_function = nn.CrossEntropyLoss()
-
-# optimizer = torch.optim.AdamW(
-#     mlp.parameters(),
-#     lr=1e-3,  # This will be the max_lr
-#     weight_decay=5e-3
-# )
-
-# new_max_lr = 1e-3 * (1024 / 128)**0.25
-
-# scheduler = torch.optim.lr_scheduler.OneCycleLR(
-#     optimizer,
-#     max_lr=new_max_lr,  # Set a reasonable max learning rate
-#     epochs=num_epochs,
-#     steps_per_epoch=len(train_loader),
-#     pct_start=0.1, # Use a smaller warmup phase
-#     anneal_strategy='cos'
-# )
 
 optimizer = torch.optim.AdamW(
     mlp.parameters(),
@@ -268,7 +179,6 @@ for epoch in range(num_epochs):
 
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
-        # utils.clip_grad_norm_(mlp.parameters(), max_norm=1.0)
         scaler.step(optimizer)
 
         scaler.update()
@@ -354,76 +264,6 @@ print("Training has completed")
 if torch.cuda.is_available():
     torch.cuda.empty_cache()
 
-def prune_and_finetune_model(model, amount=0.3, finetune_epochs=5):
-    """
-    Applies structured pruning to the model and finetunes it to recover lost progress
-    """
-
-    print(f"Pruning {amount*100}% of channels from all Conv2d layers...")
-
-    for name, module in model.named_modules():
-        if isinstance(module, nn.Conv2d):
-            prune.ln_structured(module, name="weight", amount=amount, n=2, dim=0)
-
-    optimizer.param_groups[0]['lr'] = 1e-5
-
-    for epoch in range(finetune_epochs):
-        model.train()
-        for data in train_loader:
-            inputs, targets = data
-            inputs, targets = inputs.to(device), targets.to(device)
-
-            with autocast(device_type='cuda'):
-                outputs = model(inputs)
-                loss = loss_function(outputs, targets)
-
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-            optimizer.zero_grad(set_to_none=True)
-
-        print(f"Fine-tuning epoch {epoch+1}/{finetune_epochs} complete.")
-
-    print("\nMaking pruning permanent...")
-    for name, module in model.named_modules():
-        if isinstance(module, nn.Conv2d):
-            prune.remove(module, 'weight')
-
-    return model
-
-def fuse_model(model):
-    """
-    Fuses Conv-BN-ReLU layers in a model that uses nn.Sequential with OrderedDict.
-    """
-    modules_to_fuse = []
-    for name, module in model.named_modules():
-        if isinstance(module, nn.Sequential):
-            # Convert children to a list to allow indexing
-            layer_list = list(module.children())
-            # Get the string names of the layers
-            layer_names = [n for n, _ in module.named_children()]
-
-            for i in range(len(layer_list) - 2):
-                if (isinstance(layer_list[i], nn.Conv2d) and
-                    isinstance(layer_list[i + 1], nn.BatchNorm2d) and
-                    isinstance(layer_list[i + 2], nn.ReLU)):
-
-                    # Construct the full string names for fuse_modules
-                    modules_to_fuse.append([
-                        f'{name}.{layer_names[i]}',
-                        f'{name}.{layer_names[i+1]}',
-                        f'{name}.{layer_names[i+2]}'
-                    ])
-
-    if modules_to_fuse:
-        print(f"Fusing {len(modules_to_fuse)} layers...")
-        # Fusion must be done in eval mode.
-        model.eval()
-        torch.quantization.fuse_modules(model, modules_to_fuse, inplace=True)
-    return model
-
-# mlp = prune_and_finetune_model(mlp, amount=0.4, finetune_epochs=5)
-
 print("\n--- Saving Trained Model ---")
 
 # IMPORTANT: Move model to CPU before saving for cross-device compatibility
@@ -440,44 +280,55 @@ torch.save({
 print("GPU-trained model saved as 'trained_model_gpu.pth'")
 
 def evaluate_test_set():
-    # Load the saved model
-    loaded_model_state = torch.load('trained_model_gpu.pth')
+    try:
+        print("Loading model...")
+        loaded_model_state = torch.load('trained_model_gpu.pth', map_location='cpu')
+        
+        # Recreate the model architecture
+        loaded_mlp = MLP()
+        
+        # Handle compiled model state dict
+        state_dict = loaded_model_state['model_state_dict']
+        
+        # Check if this is a compiled model state dict
+        if any(key.startswith('_orig_mod.') for key in state_dict.keys()):
+            print("Detected compiled model state dict - extracting original weights...")
+            # Remove '_orig_mod.' prefix from all keys
+            cleaned_state_dict = {}
+            for key, value in state_dict.items():
+                if key.startswith('_orig_mod.'):
+                    new_key = key.replace('_orig_mod.', '')
+                    cleaned_state_dict[new_key] = value
+                else:
+                    cleaned_state_dict[key] = value
+            state_dict = cleaned_state_dict
+        
+        # Load the cleaned state dictionary
+        loaded_mlp.load_state_dict(state_dict)
+        print("Model weights loaded successfully")
 
-    # Recreate the model architecture
-    loaded_mlp = MLP()
+        # Move to device
+        loaded_mlp.to(device)
+        loaded_mlp.eval()
 
-    # Load the state dictionary
-    loaded_mlp.load_state_dict(loaded_model_state['model_state_dict'])
+        print("Using uncompiled model for evaluation")
 
-    # Move the loaded model to the appropriate device
-    loaded_mlp.to(device)
-    loaded_mlp.eval()
+        # Initialize metrics
+        test_accuracy = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes).to(device)
+        test_precision = torchmetrics.Precision(task="multiclass", num_classes=num_classes, average='macro').to(device)
+        test_recall = torchmetrics.Recall(task="multiclass", num_classes=num_classes, average='macro').to(device)
+        test_f1 = torchmetrics.F1Score(task="multiclass", num_classes=num_classes, average='macro').to(device)
 
-    fused_mlp = fuse_model(loaded_mlp)
-    print("Model after fusion:\n", fused_mlp)
-
-    test_accuracy = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes).to(device)
-    test_precision = torchmetrics.Precision(task="multiclass", num_classes=num_classes, average='macro').to(device)
-    test_recall = torchmetrics.Recall(task="multiclass", num_classes=num_classes, average='macro').to(device)
-    test_f1 = torchmetrics.F1Score(task="multiclass", num_classes=num_classes, average='macro').to(device)
-
-    with torch.profiler.profile(
-        activities=[
-            torch.profiler.ProfilerActivity.CPU,
-            torch.profiler.ProfilerActivity.CUDA
-        ],
-        on_trace_ready=torch.profiler.tensorboard_trace_handler("./log"),
-        record_shapes=True,
-        with_stack=True,
-        schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=2) # Add a schedule
-    ) as profiler:
+        print(f"Starting evaluation on {len(test_loader)} batches...")
+        
         with torch.no_grad():
             for i, test_data in enumerate(test_loader):
                 test_inputs, test_targets = test_data
-                test_inputs = test_inputs.to(device)
-                test_targets = test_targets.to(device)
+                test_inputs = test_inputs.to(device, non_blocking=True)
+                test_targets = test_targets.to(device, non_blocking=True)
 
-                with torch.profiler.record_function("model_inference"): # FIX: Use torch.profiler.record_function
+                # Use autocast for consistency with training
+                with autocast(device_type='cuda'):
                     test_outputs = loaded_mlp(test_inputs)
 
                 test_accuracy.update(test_outputs, test_targets)
@@ -485,18 +336,30 @@ def evaluate_test_set():
                 test_recall.update(test_outputs, test_targets)
                 test_f1.update(test_outputs, test_targets)
 
-                profiler.step()
+                if i % 20 == 0:
+                    print(f"Progress: {i}/{len(test_loader)} batches")
 
-    test_acc = test_accuracy.compute()
-    test_prec = test_precision.compute()
-    test_rec = test_recall.compute()
-    test_f1_score = test_f1.compute()
+        # Compute final metrics
+        test_acc = test_accuracy.compute()
+        test_prec = test_precision.compute()
+        test_rec = test_recall.compute()
+        test_f1_score = test_f1.compute()
 
-    print("\n=== Final Test Results ===")
-    print(f'Test Accuracy: {test_acc:.4f}')
-    print(f'Test Precision: {test_prec:.4f}')
-    print(f'Test Recall: {test_rec:.4f}')
-    print(f'Test F1-Score: {test_f1_score:.4f}')
-    print(profiler.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+        print("\n" + "="*50)
+        print("=== FINAL TEST RESULTS ===")
+        print("="*50)
+        print(f'Test Accuracy:  {test_acc:.4f} ({test_acc*100:.2f}%)')
+        print(f'Test Precision: {test_prec:.4f}')
+        print(f'Test Recall:    {test_rec:.4f}')
+        print(f'Test F1-Score:  {test_f1_score:.4f}')
+        print("="*50)
+        
+        return test_acc.item()
+        
+    except Exception as e:
+        print(f"Error during evaluation: {e}")
+        traceback.print_exc()
+        return None
 
+# Call the function
 evaluate_test_set()

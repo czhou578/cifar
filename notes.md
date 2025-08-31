@@ -1,3 +1,10 @@
+Volume: 32 x 32 x 3 where the 3 is considered the "depth" of a volume.
+Filter must have same depth as the volume
+
+32 x 32 x 3 image with 5 x 5 filter will result in 28 x 28 activation map
+
+Fully connected layer:
+
 **Adagrad**:
 
 Accumulates all past gradients forever
@@ -418,8 +425,6 @@ Train a model to convergence (which you have already done).
 Prune the trained model by removing a certain percentage of weights.
 Fine-tune the pruned model for a few epochs to recover the accuracy lost during pruning.
 Evaluate the final, smaller model.
-
-how is new max learning rate calculated?
 
 51% CPU result with 20 epochs and gradient accumulation
 
