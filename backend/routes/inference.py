@@ -1,7 +1,6 @@
 from fastapi import APIRouter, File, UploadFile, HTTPException, Query
-from fastapi.responses import JSONResponse
 import logging
-from typing import List, Dict, Any
+from typing import Dict, Any
 
 from models.model_loader import model_loader
 from utils.preprocessing import preprocess_image

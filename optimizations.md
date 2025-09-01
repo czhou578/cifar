@@ -61,6 +61,7 @@ Performs operator fusion (combines multiple operations into single, optimized ke
 Uses more efficient memory access patterns
 Can run in parallel more effectively
 Type Inference: It automatically infers tensor types and shapes, allowing for better optimization
+It also improves read and write speeds
 
 Tradeoff between more layers vs more channel output per layer:
 
@@ -75,3 +76,11 @@ Wider shallow nets can overfit more easily (more params in early layers memorize
 Skip connections can mimic depth?
 
 Test Time Augmentation
+
+Precision vs Float. Which one to optimize?
+
+BF16: range of numbers identical, but mantissa is truncated
+
+Torch compile:
+
+Change batch size: have to retune everything!!

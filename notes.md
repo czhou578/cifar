@@ -206,11 +206,20 @@ Gradient Tracking: All registered parameters participate in backpropagation
 
 **Dataloader**
 
-- Pin memory refers to allocating memory in a way that prevents the operating system from swapping it to disk (paging). Pinned memory is a limited system resource. Using too much can cause system instability.
+- Pin memory: refers to allocating memory in a way that prevents the operating system from swapping it to disk (paging). Pinned memory is a limited system resource. Using too much can cause system instability.
 
-- Prefetch Fector controls the number of batches loaded in advance by each worker process to improve data loading efficiency
+- Prefetch Fector: controls the number of batches loaded in advance by each worker process to improve data loading efficiency. If GPU processing batch 1, worker will load batch 4 if prefetch is 4.
 
-- keep DataLoader worker processes alive between epochs instead of recreating them. This eliminates creation of new processes every epoch and is memory efficient.
+- Persistent Workers: keep DataLoader worker processes alive between epochs instead of recreating them. This eliminates creation of new processes every epoch and is memory efficient.
+
+- Shuffles data every epoch if it is True.
+
+Steps
+
+1. Worker processes load 256 images from disk
+2. Apply transforms to each image individually
+3. Stack into batch tensor (256, 3, 32, 32)
+4. Transfer to GPU
 
 **Ablation Tests For Loss**
 
@@ -263,26 +272,26 @@ Layers have to be consecutive.
 
 ## Torch.backends library:
 
-.cudnn.benchmark
+**.cudnn.benchmark**
 
 - First few iterations, cuDNN measures performance for your specific setup. Caches the fastest algorithm found.
 
 * Disable when input sizes are variable, or training runs are short.
 
-.cuda.matmul.allow_tf32
+**.cuda.matmul.allow_tf32**
 
 - TF32 is different then FP32 since it is same range but reduced precision.
 
 * Enable on newest GPU, training when speed > precision.
 
-.cudnn.allow_tf32
+**.cudnn.allow_tf32**
 
 - Allows cuDNN operations (convolutions, etc.) to use TF32 format on supported hardware. Controls convolutions, pooling, normalization.
 
 Fastest: All optimizations enabled
 ↓ benchmark=True + allow_tf32=True
 ↓ benchmark=True + allow_tf32=False  
- ↓ benchmark=False + allow_tf32=True
+↓ benchmark=False + allow_tf32=True
 Slowest: benchmark=False + allow_tf32=False
 
 Find maximum batch size dynamically:
@@ -433,3 +442,48 @@ prefetch factor and persistent_workers only works when num workers > 0
 An asynchronous context manager in Python is an object that allows for the allocation and release of resources within asynchronous code, ensuring reliable setup and teardown logic even if the asynchronous operations encounter errors or interruptions.
 
 RandAugment: better and stronger transforms from torchvision.
+
+## Bayesian Optimization and Grid Search
+
+## Graphing Results During Training
+
+Use Matplotlib
+
+- Validation loss per epoch and Training loss per epoch
+
+Cutmix and mixup returns soft labels, making training accuracy calculate differently.
+
+**Log**
+
+8/31/2025
+
+```python
+base_max_lr = 4e-3  # Higher for faster convergence in 60 epochs
+batch_size = 256
+scaling_factor = (batch_size / 256) ** 0.5  # Linear scaling
+max_lr = base_max_lr * scaling_factor  # = 4e-3
+
+scheduler = torch.optim.lr_scheduler.OneCycleLR(
+    optimizer,
+    max_lr=max_lr,              # 4e-3 for 60 epochs
+    epochs=num_epochs,          # 60
+    steps_per_epoch=len(train_loader),
+    pct_start=0.2,              # 20% warmup (12 epochs)
+    anneal_strategy='cos',
+    div_factor=25.0,            # Start LR = max_lr/25 = 1.6e-4
+    final_div_factor=10000.0    # Final LR = max_lr/10000 = 4e-7
+)
+
+```
+
+tried to run with 60 epochs but ended up with flattening validation error after epoch 30. Also added mixup and cutmix to transforms. Took about 40 minutes.
+
+Learning rate scheduler:
+
+Cosine annealing - have to set a higher initial learning rate compared to OneCycleLR, otherwise the optimal high learning rate never happens.
+
+9/1:
+
+Added a simpler transform, and updated batch size to 1024, with prefetch level 6.
+
+Trained for 38 minutes and got 65%.
