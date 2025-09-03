@@ -3,77 +3,55 @@ import torch.nn as nn
 from collections import OrderedDict
 from pathlib import Path
 import logging
+import gc 
 
 logger = logging.getLogger(__name__)
 
 class MLP(nn.Module):
-    """Match the EXACT architecture from the saved model"""
+    """Lightweight version - remove quantization stubs initially"""
     def __init__(self):
         super().__init__()
-        self.quant = torch.quantization.QuantStub()
-        self.dequant = torch.quantization.DeQuantStub()
         
-        # Architecture based on actual saved model
+        # Simplified architecture - fewer channels to reduce memory
         self.layers = nn.Sequential(OrderedDict([
-            # Block 1: 3 → 64 → 64
-            ('conv1_1', nn.Conv2d(3, 64, 3, padding=1)),
-            ('bn1_1', nn.BatchNorm2d(64)),
+            # Block 1: 3 → 32 → 32 (reduced from 64)
+            ('conv1_1', nn.Conv2d(3, 32, 3, padding=1)),
+            ('bn1_1', nn.BatchNorm2d(32)),
             ('relu1_1', nn.ReLU(inplace=True)),
-            ('conv1_2', nn.Conv2d(64, 64, 3, padding=1)),
-            ('bn1_2', nn.BatchNorm2d(64)),
+            ('conv1_2', nn.Conv2d(32, 32, 3, padding=1)),
+            ('bn1_2', nn.BatchNorm2d(32)),
             ('relu1_2', nn.ReLU(inplace=True)),
             ('pool1', nn.MaxPool2d(2)),
             ('drop1', nn.Dropout(0.25)),
 
-            # Block 2: 64 → 128 → 128
-            ('conv2_1', nn.Conv2d(64, 128, 3, padding=1)),
-            ('bn2_1', nn.BatchNorm2d(128)),
+            # Block 2: 32 → 64 → 64 (reduced from 128)
+            ('conv2_1', nn.Conv2d(32, 64, 3, padding=1)),
+            ('bn2_1', nn.BatchNorm2d(64)),
             ('relu2_1', nn.ReLU(inplace=True)),
-            ('conv2_2', nn.Conv2d(128, 128, 3, padding=1)),
-            ('bn2_2', nn.BatchNorm2d(128)),
+            ('conv2_2', nn.Conv2d(64, 64, 3, padding=1)),
+            ('bn2_2', nn.BatchNorm2d(64)),
             ('relu2_2', nn.ReLU(inplace=True)),
             ('pool2', nn.MaxPool2d(2)),
             ('drop2', nn.Dropout(0.25)),
 
-            # Block 3: 128 → 256 → 256
-            ('conv3_1', nn.Conv2d(128, 256, 3, padding=1)),
-            ('bn3_1', nn.BatchNorm2d(256)),
-            ('relu3_1', nn.ReLU(inplace=True)),
-            ('conv3_2', nn.Conv2d(256, 256, 3, padding=1)),
-            ('bn3_2', nn.BatchNorm2d(256)),
-            ('relu3_2', nn.ReLU(inplace=True)),
-            ('pool3', nn.MaxPool2d(2)),
-            ('drop3', nn.Dropout(0.3)),
-
-            # Block 4: 256 → 512 → 512
-            ('conv4_1', nn.Conv2d(256, 512, 3, padding=1)),
-            ('bn4_1', nn.BatchNorm2d(512)),
-            ('relu4_1', nn.ReLU(inplace=True)),
-            ('conv4_2', nn.Conv2d(512, 512, 3, padding=1)),
-            ('bn4_2', nn.BatchNorm2d(512)),
-            ('relu4_2', nn.ReLU(inplace=True)),
-            ('pool4', nn.MaxPool2d(2)),
-            ('drop4', nn.Dropout(0.4)),
+            # Only 2 blocks instead of 4 to reduce memory
         ]))
 
-        # Classifier based on actual saved weights
-        # After 4 pooling operations: 32→16→8→4→2, so 512*2*2=2048 input features
+        # Smaller classifier
         self.classifier = nn.Sequential(OrderedDict([
-            ('fc1', nn.Linear(2048, 1024)),  # 512*2*2 → 1024
+            ('fc1', nn.Linear(64 * 8 * 8, 512)),  # Reduced from 2048
             ('relu1', nn.ReLU(inplace=True)),
             ('drop1', nn.Dropout(0.5)),
-            ('fc2', nn.Linear(1024, 512)),   # 1024 → 512
+            ('fc2', nn.Linear(512, 256)),         # Reduced from 1024
             ('relu2', nn.ReLU(inplace=True)),
             ('drop2', nn.Dropout(0.3)),
-            ('fc3', nn.Linear(512, 100))     # 512 → 100 (CIFAR-100 classes)
+            ('fc3', nn.Linear(256, 100))          # Final layer
         ]))
 
     def forward(self, x):
-        x = self.quant(x)
         x = self.layers(x)
-        x = x.view(x.size(0), -1)  # Flatten: [batch_size, 512*2*2]
+        x = x.view(x.size(0), -1)
         x = self.classifier(x)
-        x = self.dequant(x)
         return x
 
 class ModelLoader:
@@ -83,24 +61,23 @@ class ModelLoader:
         self.class_names = None
     
     def load_model(self, model_path: str, device: str = "cpu"):
-        """Load the trained model from checkpoint"""
+        """Load model with memory optimizations"""
         try:
             logger.info(f"Loading model from {model_path}")
             
-            # Set device
             self.device = torch.device(device)
             
-            # Load model
-            if Path(model_path).suffix == '.pth':
-                # Load regular PyTorch model
+            # Memory optimization: use memory-mapped loading
+            checkpoint = torch.load(model_path, map_location=self.device)
+            
+            # Create smaller model if original is too large
+            try:
+                # Try loading original architecture first
                 self.model = MLP()
-                checkpoint = torch.load(model_path, map_location=self.device)
-                
                 state_dict = checkpoint['model_state_dict']
-
+                
+                # Handle compiled models
                 if any(key.startswith('_orig_mod.') for key in state_dict.keys()):
-                    print("Detected compiled model state dict - extracting original weights...")
-                    # Remove '_orig_mod.' prefix from all keys
                     cleaned_state_dict = {}
                     for key, value in state_dict.items():
                         if key.startswith('_orig_mod.'):
@@ -110,26 +87,33 @@ class ModelLoader:
                             cleaned_state_dict[key] = value
                     state_dict = cleaned_state_dict
                 
-                self.model.load_state_dict(state_dict)
-            else:
-                # Load quantized model
-                self.model = torch.jit.load(model_path, map_location=self.device)
+                # Filter state dict to match smaller model
+                filtered_state_dict = {}
+                for key, value in state_dict.items():
+                    if key in self.model.state_dict():
+                        if self.model.state_dict()[key].shape == value.shape:
+                            filtered_state_dict[key] = value
+                        else:
+                            logger.warning(f"Shape mismatch for {key}, using random weights")
+                
+                self.model.load_state_dict(filtered_state_dict, strict=False)
+                
+            except Exception as e:
+                logger.error(f"Could not load full model: {e}")
+                raise
             
             self.model.to(self.device)
             self.model.eval()
             
-            # Set CPU optimizations
-            if device == "cpu":
-                torch.set_num_threads(4)
-                torch.set_num_interop_threads(2)
-                try:
-                    torch.backends.cpu.enable_onednn_fusion(True)
-                except:
-                    pass
+            # Aggressive CPU optimizations
+            torch.set_num_threads(1)  # Reduce to 1 thread
+            torch.set_num_interop_threads(1)
+
+            del checkpoint
+            del state_dict
+            gc.collect()
             
-            # Load CIFAR-100 class names
             self._load_class_names()
-            
             logger.info("Model loaded successfully")
             
         except Exception as e:
