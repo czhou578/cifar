@@ -723,3 +723,4 @@ Fresh predictions - Each request should get real-time results
 Privacy - Prevents caching of user-uploaded images
 
 "|" requires Python 3.10 or higher
+Path(**file**).parent gets the directory containing config.py
