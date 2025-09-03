@@ -4,7 +4,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent
 
 # Model configuration
-MODEL_PATH = os.getenv("MODEL_PATH", str(BASE_DIR / "models" / "trained_model_gpu.pth"))
+MODEL_PATH = os.getenv("MODEL_PATH", str(BASE_DIR / "models" / "compressed_model.pth"))
 DEVICE = os.getenv("DEVICE", "cpu")
 
 # API configuration

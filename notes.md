@@ -724,3 +724,10 @@ Privacy - Prevents caching of user-uploaded images
 
 "|" requires Python 3.10 or higher
 Path(**file**).parent gets the directory containing config.py
+
+**Trying to make the model's memory footprint smaller**
+
+- TypeError: 'mmap' is an invalid keyword argument for Unpickler()
+  : not compatible with my current pytorch version??
+
+- Garbage collector in python (gc package): reclaims memory from objects that are no longer referenced.
