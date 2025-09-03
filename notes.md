@@ -19,6 +19,10 @@ Maintains adaptive learning rates that don't vanish
 Combines momentum + adaptive learning rates
 Better convergence properties
 
+**Weight Initialization**
+
+If weights too small, then gradient update will be too small. Opposite if weights are too big.
+
 **Weight Decay**
 https://towardsdatascience.com/weight-decay-and-its-peculiar-effects-66e0aee3e7b8/
 
@@ -69,6 +73,9 @@ In-place Operations: Modify tensors without creating new nodes
 
 **2D Batch Norm**
 
+Examples in the batch are coupled mathematically, so its non deterministic.
+The centering operation is differentiable
+
 - How it works: For each channel in the feature map, it calculates the mean and standard deviation across all the examples (channels, in this case, each of RGB) in the current mini-batch. It then normalizes the activations to have a mean of 0 and a standard deviation of 1. It also has learnable parameters to scale and shift the result. This helps to stabilize and accelerate the training process.
 
 **Alternatives to 2D Batch Norm**:
@@ -106,11 +113,17 @@ This is PyTorch's implementation of a convolutional layer. The size of your inpu
 
 ## nn.MaxPool2d
 
+Do this to reduce number of parameters and reduce overfitting. Does this to every layer of the volume spatially, in depth slice.
+
 1. aggregate the data, usually using the maximum or average of a window of pixels.
 
 ```python
 nn.MaxPool2d(2) # 2x2 kernel, moving 2 pixels at a time
 ```
+
+## nn.RELU
+
+- Think of ReLU as a light switch—only turning on (positive) features that matter, letting the network focus on relevant patterns while discarding noise. Without it, the "light" stays on for everything, blurring the picture.
 
 ## nn.Dropout
 
@@ -341,6 +354,16 @@ Using proper loss scaling (GradScaler)
 Well-tested model architecture
 Sufficient regularization (BatchNorm, Dropout)
 
+**GradScaler**
+
+Problems with FP16:
+
+- Weight updates: with half precision, 1 + 0.0001 rounds to 1. autocast() takes care of this one.
+
+- Vanishing gradients: with half precision, anything less than (roughly) 2e-14 rounds to 0, as opposed to single precision 2e-126. GradScaler() takes care of this one.
+
+- Explosive loss: similar to the above, overflow is also much more likely with half precision. This is also managed by autocast() context.
+
 **OneCycleLR**
 
 - prevents early gradient explosions with large models
@@ -443,6 +466,10 @@ An asynchronous context manager in Python is an object that allows for the alloc
 
 RandAugment: better and stronger transforms from torchvision.
 
+## Extra Notes:
+
+if the number of hyperparameters is large you may prefer to use bigger validation splits. If the number of examples in the validation set is small (perhaps only a few hundred or so), it is safer to use cross-validation.
+
 ## Bayesian Optimization and Grid Search
 
 ## Graphing Results During Training
@@ -452,6 +479,8 @@ Use Matplotlib
 - Validation loss per epoch and Training loss per epoch
 
 Cutmix and mixup returns soft labels, making training accuracy calculate differently.
+
+How to find a good initial learning rate?
 
 **Log**
 
@@ -487,3 +516,210 @@ Cosine annealing - have to set a higher initial learning rate compared to OneCyc
 Added a simpler transform, and updated batch size to 1024, with prefetch level 6.
 
 Trained for 38 minutes and got 65%.
+
+Trained for 31 minutes, got 63%
+
+9/2
+
+Added kaiming init to get down the initial loss to what it should be in theory
+
+Reduce regularization in later epochs
+Also increase the learning rate pct_start to 40%, and a slightly lower peak.
+
+Trained for 29 min and got 63%
+Trained for 39 min and got 65.58%. This is probably the capacity limit for 2 layer CNN.
+
+Added a third block of CNN, added progressive augmentation reduction.
+
+**Finding Good Batch Size**
+
+Smaller batch makes your gradient estimation more rough and less precise.
+
+## Previously Tried Code
+
+# scheduler = torch.optim.lr_scheduler.OneCycleLR(
+
+# optimizer,
+
+# max_lr=scaled_lr, # ~8e-3 (2x higher for larger batches)
+
+# epochs=num_epochs,
+
+# steps_per_epoch=len(train_loader), # Will be 44 instead of 176
+
+# pct_start=0.25,
+
+# anneal_strategy='cos',
+
+# div_factor=20.0,
+
+# final_div_factor=100.0
+
+# )
+
+# optimizer = torch.optim.AdamW(
+
+# mlp.parameters(),
+
+# lr=3e-3, # Increase from 1e-3 to 2e-3
+
+# weight_decay=5e-4 # Reduce from 5e-3 to 1e-3
+
+# )
+
+# scheduler = torch.optim.lr_scheduler.OneCycleLR(
+
+# optimizer,
+
+# max_lr=4e-3, # Keep proven peak LR
+
+# epochs=num_epochs, # 60
+
+# steps_per_epoch=len(train_loader),
+
+# pct_start=0.25, # 25% warmup (15 epochs) - longer peak
+
+# anneal_strategy='cos',
+
+# div_factor=20.0, # Start LR = 2e-4 (higher start)
+
+# final_div_factor=200.0 # Final LR = 2e-5 (much higher final)
+
+# )
+
+# new_max_lr = 2e-3 \* (256 / 128)\*\*0.25
+
+# scheduler = torch.optim.lr_scheduler.OneCycleLR(
+
+# optimizer,
+
+# max_lr=new_max_lr,
+
+# epochs=num_epochs,
+
+# steps_per_epoch=len(train_loader),
+
+# pct_start=0.15, # Increase from 0.1 to 0.3
+
+# anneal_strategy='cos'
+
+# )
+
+# base_max_lr = 4e-3 # Higher for faster convergence in 60 epochs
+
+# batch_size = 256
+
+# scaling_factor = (batch_size / 256) \*\* 0.5 # Linear scaling
+
+# max_lr = base_max_lr \* scaling_factor # = 4e-3
+
+# scheduler = torch.optim.lr_scheduler.OneCycleLR(
+
+# optimizer,
+
+# max_lr=max_lr, # 4e-3 for 60 epochs
+
+# epochs=num_epochs, # 60
+
+# steps_per_epoch=len(train_loader),
+
+# pct_start=0.2, # 20% warmup (12 epochs)
+
+# anneal_strategy='cos',
+
+# div_factor=25.0, # Start LR = max_lr/25 = 1.6e-4
+
+# final_div_factor=10000.0 # Final LR = max_lr/10000 = 4e-7
+
+# )
+
+# scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+
+# optimizer, T_max=num_epochs, eta_min=1e-5
+
+# )
+
+# scheduler = torch.optim.lr_scheduler.OneCycleLR(
+
+# optimizer,
+
+# max_lr=6e-3, # Reduce from 8e-3 to 6e-3 for stability
+
+# epochs=num_epochs, # 50
+
+# steps_per_epoch=len(train_loader),
+
+# pct_start=0.35, # Longer warmup (17 epochs vs 12)
+
+# anneal_strategy='cos',
+
+# div_factor=15.0, # Higher start LR (4e-4 vs 4e-5)
+
+# final_div_factor=300.0 # Much lower final LR (2e-5 vs 8e-5)
+
+# )
+
+Backend Notes:
+
+psutil library
+
+psutil.Process().memory_info().rss: gets current process, returns memory stats, and resident set size.
+
+**X-Content-Type-Options: nosniff** -
+Without this header, this could be dangerous:
+User uploads "image.jpg" that's actually HTML with <script> tags
+Browser might execute it instead of treating it as an image
+
+**X-Frame-Options: Deny** - prevents clickjacking attacks. Prevents malicious sites from embedding API in hidden frames.
+
+Without this header, malicious site could do:
+
+<iframe src="your-api.com/predict" style="opacity:0;position:absolute">
+User thinks they're clicking something else, but actually hits your API
+
+**X-XSS-Protection: 1; mode=block**:
+
+enable browser built in XSS filtering and blocks page if XSS found
+
+Helps prevent scenarios like:
+Malicious user submits: <script>steal_data()</script>
+Browser detects and blocks instead of executing
+
+**Strict-Transport-Security (HSTS)**:
+Prevents downgrade attacks (forcing HTTP instead of HTTPS) and man in the middle attacks, ensures all requests use encrypted connections
+
+max-age=31536000 = 1 year
+includeSubDomains = applies to all subdomains too
+
+**"default-src 'none'; frame-ancestors 'none'; base-uri 'none'"**
+
+default-src 'none' - Blocks ALL resources by default (scripts, styles, images, etc.)
+frame-ancestors 'none' - Prevents your API from being embedded in any iframe (redundant with X-Frame-Options but more modern)
+base-uri 'none' - Prevents changing the document's base URL
+
+**Referrer-Policy**
+
+no referrer would control what info sent with requests:
+
+- if user visits url, then clicks link to external site, the external site would see traces of original url. With no referrer, wouldn't see it
+
+**Permissions-Policy** - microphone, camera, etc:
+
+Disables browser API's that your API doesn't need.
+
+**X-Permitted-Cross-Domain-Policies:**
+
+- controls adobe flash and pdf cross domain access (pdf security, legacy stuff)
+
+**Cache-control**
+
+no-store - Don't save response anywhere (disk, memory)
+no-cache - Always check with server before using cached version
+must-revalidate - Force validation even for stale content
+private - Only client can cache, not shared proxies
+
+Sensitive data - Image classifications shouldn't be cached
+Fresh predictions - Each request should get real-time results
+Privacy - Prevents caching of user-uploaded images
+
+"|" requires Python 3.10 or higher

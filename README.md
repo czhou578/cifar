@@ -41,3 +41,6 @@ Topics that I learned while doing this project:
 15. Pruning models
 16. Optimizing CUDA
 17. How to serve a model and do inference in FastAPI.
+18. Using thread pool for backend serving
+19. Learned how to use psutil library
+20. Learned 5 new API security headers and why they are important.
