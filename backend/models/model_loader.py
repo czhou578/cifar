@@ -61,57 +61,67 @@ class ModelLoader:
         self.class_names = None
     
     def load_model(self, model_path: str, device: str = "cpu"):
-        """Load model with memory optimizations"""
+        """Load model with aggressive memory optimizations"""
         try:
             logger.info(f"Loading model from {model_path}")
             
             self.device = torch.device(device)
             
-            # Memory optimization: use memory-mapped loading
-            checkpoint = torch.load(model_path, map_location=self.device)
+            # Force garbage collection before loading
+            import gc
+            gc.collect()
             
-            # Create smaller model if original is too large
-            try:
-                # Try loading original architecture first
-                self.model = MLP()
-                state_dict = checkpoint['model_state_dict']
-                
-                # Handle compiled models
-                if any(key.startswith('_orig_mod.') for key in state_dict.keys()):
-                    cleaned_state_dict = {}
-                    for key, value in state_dict.items():
-                        if key.startswith('_orig_mod.'):
-                            new_key = key.replace('_orig_mod.', '')
-                            cleaned_state_dict[new_key] = value
-                        else:
-                            cleaned_state_dict[key] = value
-                    state_dict = cleaned_state_dict
-                
-                # Filter state dict to match smaller model
-                filtered_state_dict = {}
+            # Load with minimal memory footprint
+            checkpoint = torch.load(model_path, map_location=self.device, weights_only=True)
+            
+            # Create model
+            self.model = MLP()
+            
+            # Extract and clean state dict
+            state_dict = checkpoint.get('model_state_dict', checkpoint)
+            
+            # Handle compiled models
+            if any(key.startswith('_orig_mod.') for key in state_dict.keys()):
+                cleaned_state_dict = {}
                 for key, value in state_dict.items():
-                    if key in self.model.state_dict():
-                        if self.model.state_dict()[key].shape == value.shape:
-                            filtered_state_dict[key] = value
-                        else:
-                            logger.warning(f"Shape mismatch for {key}, using random weights")
-                
-                self.model.load_state_dict(filtered_state_dict, strict=False)
-                
-            except Exception as e:
-                logger.error(f"Could not load full model: {e}")
-                raise
+                    if key.startswith('_orig_mod.'):
+                        new_key = key.replace('_orig_mod.', '')
+                        cleaned_state_dict[new_key] = value
+                    else:
+                        cleaned_state_dict[key] = value
+                del state_dict  # Free original
+                state_dict = cleaned_state_dict
+            
+            # Load only matching layers
+            model_state = self.model.state_dict()
+            filtered_state_dict = {}
+            
+            for key, value in state_dict.items():
+                if key in model_state and model_state[key].shape == value.shape:
+                    filtered_state_dict[key] = value
+                else:
+                    logger.warning(f"Skipping {key} - shape mismatch or not found")
+            
+            # Clear intermediate data
+            del state_dict
+            del checkpoint
+            gc.collect()
+            
+            # Load the filtered state
+            self.model.load_state_dict(filtered_state_dict, strict=False)
+            del filtered_state_dict
+            gc.collect()
             
             self.model.to(self.device)
             self.model.eval()
             
-            # Aggressive CPU optimizations
-            torch.set_num_threads(1)  # Reduce to 1 thread
+            # CPU optimizations
+            torch.set_num_threads(1)
             torch.set_num_interop_threads(1)
-
-            del checkpoint
-            del state_dict
-            gc.collect()
+            
+            # Optimize for inference
+            if hasattr(torch.backends, 'cudnn'):
+                torch.backends.cudnn.benchmark = False
             
             self._load_class_names()
             logger.info("Model loaded successfully")
