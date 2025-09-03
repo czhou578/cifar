@@ -527,9 +527,12 @@ Reduce regularization in later epochs
 Also increase the learning rate pct_start to 40%, and a slightly lower peak.
 
 Trained for 29 min and got 63%
-Trained for 39 min and got 65.58%. This is probably the capacity limit for 2 layer CNN.
+Trained for 39 min and got 65.58%, 60 epochs. This is probably the capacity limit for 2 layer CNN.
+
+9/3
 
 Added a third block of CNN, added progressive augmentation reduction.
+Trained for 30 min and got 63%
 
 **Finding Good Batch Size**
 
@@ -731,3 +734,5 @@ Path(**file**).parent gets the directory containing config.py
   : not compatible with my current pytorch version??
 
 - Garbage collector in python (gc package): reclaims memory from objects that are no longer referenced.
+
+- Compress model by changing from fP32 to fp16 / minimal loss to performance.
