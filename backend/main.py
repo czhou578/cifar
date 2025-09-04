@@ -68,7 +68,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1"])
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", ".vercel.app"])
 app.middleware("http")(security_headers)
 
 app.add_middleware(
