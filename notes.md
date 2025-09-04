@@ -534,6 +534,8 @@ Trained for 39 min and got 65.58%, 60 epochs. This is probably the capacity limi
 Added a third block of CNN, added progressive augmentation reduction.
 Trained for 30 min and got 63%
 
+Trained for 38 min and 68% with 60 epochs and 3 layers
+
 **Finding Good Batch Size**
 
 Smaller batch makes your gradient estimation more rough and less precise.

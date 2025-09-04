@@ -95,3 +95,7 @@ async def health_check():
         "model_status": model_status,
         "device": str(model_loader.device) if model_loader.device else "unknown"
     }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
