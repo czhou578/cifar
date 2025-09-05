@@ -531,6 +531,10 @@ Trained for 39 min and got 65.58%. This is probably the capacity limit for 2 lay
 
 Added a third block of CNN, added progressive augmentation reduction.
 
+9/3
+
+**Test Time Augmentation**:
+
 **Finding Good Batch Size**
 
 Smaller batch makes your gradient estimation more rough and less precise.
@@ -723,3 +727,7 @@ Fresh predictions - Each request should get real-time results
 Privacy - Prevents caching of user-uploaded images
 
 "|" requires Python 3.10 or higher
+
+# LSTM Intro
+
+There is a cell state that runs linearly through an LSTM. Cell state contains gates which regulate adding or removal of info. Gates are sigmoids and mat muls that allow to flow (1) or not (0).
