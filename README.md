@@ -44,3 +44,7 @@ Topics that I learned while doing this project:
 18. Using thread pool for backend serving
 19. Learned how to use psutil library
 20. Learned 5 new API security headers and why they are important.
+21. Using Kaiming init for initializing neural networks
+22. Test Time Augmentation for improving test time accuracy
+23. Trying to minimize the memory of a model by garbage collection and reduced precision
+24.

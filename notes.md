@@ -728,6 +728,91 @@ Privacy - Prevents caching of user-uploaded images
 
 "|" requires Python 3.10 or higher
 
-# LSTM Intro
+# LSTM Intro --- New Section!
 
 There is a cell state that runs linearly through an LSTM. Cell state contains gates which regulate adding or removal of info. Gates are sigmoids and mat muls that allow to flow (1) or not (0).
+
+**Forget gate**: “What old info should I throw away?”
+
+**Input gate**: “What new info should I add?”
+
+**Cell state**: “What do I carry forward as memory?”
+
+**Output gate**: “What should I say at this step?”
+
+Step by Step Walkthrough
+
+1. What information do we throw away? Looks at previous layer and outputs 0 for remove or 1 to keep.
+
+Sigmoid(wei \* (prev_output, input) + bias)
+
+2. What new info do we store in the cell state?
+
+- sigmoid layer decides which values we update
+- tanh layer creates vector of new candidate values that can be added
+
+i = sigmoid(weig _ (prev_outpu, input) + bias)
+C = tanh(wei _ (prev_output, input) + bias)
+
+3. Actually do the update
+
+C = old state _ Step 1 func + i _ C
+
+Run through sigmoid decides what parts of state we want to output, through tanh to push between -1 and 1, then multiply output of sigmoid gate
+
+o(t) = sigmoid(wei _ (prev_output, input) + bias)
+h(t) = o(t) _ tanh(C)
+
+First part of LSTM determines what percentage of long term memory it should remember
+
+3 Blocks
+
+1. % long term to remember
+
+2. Potential long term memory
+
+- multiply short term memory and input by their respective weights and add a bias before putting through tanh function
+
+3. % potential memory to remember
+
+- multiply short term memory and input by their respective weights and add a bias before putting through tanh function
+
+- multiply the results from 2 and 3, and add this to the existing long term memory
+
+4. Update short term memory
+
+- Use new long term memory and use as input into tanh activation function.
+
+- multiply short term memory and input by their respective weights and add a bias before putting through tanh function
+
+- THIS IS THE OUTPUT GATE!
+
+How much of this short term memory to pass on? We multiply the results of the two blocks from step 4.
+
+LSTM reuses same weights and biases to handle data sequences of different lengths.
+
+LSTM can process data sequentially even if data itself is not sequential.
+
+# Step by Step for Simple LSTM Decoder
+
+Linear layer to map the image features to match size of the LSTM.
+
+Ex: let's say image feature tensor is (32, 2048) and our LSTM has hidden size of 512, then we need linear transform to convert (32, 2048) to (32, 512)
+
+Word embedding layer creates an embedding layer that maps every single word indices in the vocab to a vector of size embed_dim
+
+`torch.unsqueeze`: returns a new tensor with a dimension of size 1 inserted at specific position.
+
+`torch.squeeze`: input of shape (A x 1 x B x 1 x C) is (A x B x C)
+
+```python
+        self.lstm = nn.LSTM(
+            input_size = embed_dim,
+            hidden_size = hidden_dim,
+            num_layers = num_layers,
+            dropout = 0.3,
+            batch_first = True
+        )
+```
+
+pytorch is initializing the W, U, b matrices for all 4 gates at once
