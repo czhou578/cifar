@@ -31,9 +31,9 @@ async def predict_image(file: UploadFile = File(...), top_k: int = Query(default
         if not file.content_type or not file.content_type.startswith("image/"):
             raise HTTPException(status_code=400, detail="File must be an image")
 
-        file.file.read(0, 2)
+        file.file.seek(0, 2)  # Seek to end to get file size
         file_size = file.file.tell()
-        file.file.seek(0)
+        file.file.seek(0)     # Seek back to beginning
 
         if file_size > 10 * 1024 * 1024:
             raise HTTPException(status_code=413, detail="File too large!")
@@ -49,8 +49,8 @@ async def predict_image(file: UploadFile = File(...), top_k: int = Query(default
             return {
                 "status": "success",
                 "filename": file.filename,
-                "predictions": predictions,
-                "top_prediction": predictions[0] if predictions else None,      
+                "predictions": cached_predictions,  # Fix: Use cached_predictions instead of predictions
+                "top_prediction": cached_predictions[0] if cached_predictions else None,      
                 "cached": True
             }
 

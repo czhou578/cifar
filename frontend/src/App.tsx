@@ -6,6 +6,7 @@ import {
   useNavigate,
   useLocation,
 } from "react-router-dom";
+import { useState, useEffect } from "react";
 import ImageClassifier from "./components/ImageClassifier";
 import Login from "./components/Login";
 import AuthSuccess from "./AuthSuccess";
@@ -13,9 +14,24 @@ import AuthSuccess from "./AuthSuccess";
 const AppContent: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  // Check for authentication status on component mount and when location changes
+  useEffect(() => {
+    const token = localStorage.getItem("gh_token");
+    setIsLoggedIn(!!token);
+  }, [location]);
 
   const handleLoginClick = () => {
     navigate("/login");
+  };
+
+  const handleLogoutClick = () => {
+    // Clear the token from localStorage
+    localStorage.removeItem("gh_token");
+    setIsLoggedIn(false);
+    // Optionally redirect to home page
+    navigate("/");
   };
 
   // Don't show the main header on the login page
@@ -35,8 +51,11 @@ const AppContent: React.FC = () => {
             <h1>CIFAR-100 Image Classifier</h1>
             <p>Upload an image to classify it using our trained model</p>
           </div>
-          <button onClick={handleLoginClick} className="login-button">
-            Login
+          <button
+            onClick={isLoggedIn ? handleLogoutClick : handleLoginClick}
+            className="login-button"
+          >
+            {isLoggedIn ? "Logout" : "Login"}
           </button>
         </div>
       </header>

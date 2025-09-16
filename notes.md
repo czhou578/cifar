@@ -836,9 +836,19 @@ Biggest points for failure:
 
 # OAuth
 
+In this case, the access token is my GitHub personal token. This is returned in the auth callback route.
+
 Client ID: helps identify the app
 Client Secret: basically a password. - should never be exposed.
 
 After the user gives access, github will give a secret code. Then, a POST request will contain the secret, client id, and client secret.
 
 .search in URLocation in react router gives back everything after the ? in the url
+
+Implicit Grant: access token would be returned directly in the URL fragment.
+
+PKCE: Would include PKCE specific parameters like code_verifier, code_challenge, etc.
+
+Resources Owner Credentials Grant Type: the trusted client would get the resource owner's credential
+
+Client Credentials Grant type: for microservices: using clientid and secret. This is for machine to machine communication, so it is very simple.
