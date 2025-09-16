@@ -816,3 +816,29 @@ Word embedding layer creates an embedding layer that maps every single word indi
 ```
 
 pytorch is initializing the W, U, b matrices for all 4 gates at once
+
+# Attention
+
+No notion of space, meaning that each vector has no concept of where it is.
+
+Each example of batch dimension is working independently
+
+Divide by sqrt head size - control variance at init since softmax would converge to 1 hot vectors if values are too big or too small.
+
+# ML OPS Course
+
+Biggest points for failure:
+
+1. technically infeasible
+2. never make leap to prod
+3. no organization consensus
+4.
+
+# OAuth
+
+Client ID: helps identify the app
+Client Secret: basically a password. - should never be exposed.
+
+After the user gives access, github will give a secret code. Then, a POST request will contain the secret, client id, and client secret.
+
+.search in URLocation in react router gives back everything after the ? in the url

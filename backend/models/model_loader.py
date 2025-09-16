@@ -13,38 +13,55 @@ class MLP(nn.Module):
         self.quant = torch.quantization.QuantStub()
         self.dequant = torch.quantization.DeQuantStub()
         
-        # Use the SAME architecture as your trained model
+        # Use the SAME architecture as your trained model (based on the error message)
         self.layers = nn.Sequential(OrderedDict([
-            ('conv1_1', nn.Conv2d(3, 96, 3, padding=1)),      # Increase from 64 to 96
-            ('bn1_1', nn.BatchNorm2d(96)),
+            ('conv1_1', nn.Conv2d(3, 64, 3, padding=1)),      # Original size: 64
+            ('bn1_1', nn.BatchNorm2d(64)),
             ('relu1_1', nn.ReLU(inplace=True)),
-            ('conv1_2', nn.Conv2d(96, 96, 3, padding=1)),     # Increase from 64 to 96
-            ('bn1_2', nn.BatchNorm2d(96)),
+            ('conv1_2', nn.Conv2d(64, 64, 3, padding=1)),     # Original size: 64
+            ('bn1_2', nn.BatchNorm2d(64)),
             ('relu1_2', nn.ReLU(inplace=True)),
             ('pool1', nn.MaxPool2d(2)),
             ('drop1', nn.Dropout(0.25)),
 
-            ('conv2_1', nn.Conv2d(96, 192, 3, padding=1)),    # Increase from 128 to 192
-            ('bn2_1', nn.BatchNorm2d(192)),
+            ('conv2_1', nn.Conv2d(64, 128, 3, padding=1)),    # Original size: 128
+            ('bn2_1', nn.BatchNorm2d(128)),
             ('relu2_1', nn.ReLU(inplace=True)),
-            ('conv2_2', nn.Conv2d(192, 192, 3, padding=1)),   # Increase from 128 to 192
-            ('bn2_2', nn.BatchNorm2d(192)),
+            ('conv2_2', nn.Conv2d(128, 128, 3, padding=1)),   # Original size: 128
+            ('bn2_2', nn.BatchNorm2d(128)),
             ('relu2_2', nn.ReLU(inplace=True)),
             ('pool2', nn.MaxPool2d(2)),
-            ('drop2', nn.Dropout(0.3)),                       # Increase from 0.25 to 0.3
+            ('drop2', nn.Dropout(0.25)),
+
+            # Additional layers that exist in the trained model
+            ('conv3_1', nn.Conv2d(128, 256, 3, padding=1)),
+            ('bn3_1', nn.BatchNorm2d(256)),
+            ('relu3_1', nn.ReLU(inplace=True)),
+            ('conv3_2', nn.Conv2d(256, 256, 3, padding=1)),
+            ('bn3_2', nn.BatchNorm2d(256)),
+            ('relu3_2', nn.ReLU(inplace=True)),
+            ('pool3', nn.MaxPool2d(2)),
+            ('drop3', nn.Dropout(0.3)),
+
+            ('conv4_1', nn.Conv2d(256, 512, 3, padding=1)),
+            ('bn4_1', nn.BatchNorm2d(512)),
+            ('relu4_1', nn.ReLU(inplace=True)),
+            ('conv4_2', nn.Conv2d(512, 512, 3, padding=1)),
+            ('bn4_2', nn.BatchNorm2d(512)),
+            ('relu4_2', nn.ReLU(inplace=True)),
+            ('pool4', nn.MaxPool2d(2)),
+            ('drop4', nn.Dropout(0.3)),
         ]))
 
-        # Match the trained classifier architecture
+        # Match the trained classifier architecture (without BatchNorm layers)
         self.classifier = nn.Sequential(OrderedDict([
-            ('fc1', nn.Linear(192 * 8 * 8, 2048)),    # Change from 128*4*4 to 192*8*8, increase to 2048
-            ('bn1', nn.BatchNorm1d(2048)),             # Add BatchNorm
+            ('fc1', nn.Linear(512 * 2 * 2, 1024)),    # Adjusted for the actual trained size
             ('relu1', nn.ReLU(inplace=True)),
-            ('drop1', nn.Dropout(0.5)),                # Reduce from 0.7 to 0.5
-            ('fc2', nn.Linear(2048, 1024)),            # Increase from 512 to 1024
-            ('bn2', nn.BatchNorm1d(1024)),             # Add BatchNorm
+            ('drop1', nn.Dropout(0.5)),
+            ('fc2', nn.Linear(1024, 512)),
             ('relu2', nn.ReLU(inplace=True)),
-            ('drop2', nn.Dropout(0.3)),                # Reduce from 0.5 to 0.3
-            ('fc3', nn.Linear(1024, 100))
+            ('drop2', nn.Dropout(0.3)),
+            ('fc3', nn.Linear(512, 100))
         ]))
 
     def forward(self, x):

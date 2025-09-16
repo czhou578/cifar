@@ -2,12 +2,20 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import RedirectResponse
 import logging
 from pathlib import Path
-
 from models.model_loader import model_loader
 from routes.inference import router as inference_router
 from config import MODEL_PATH, LOG_LEVEL
+from dotenv import load_dotenv
+import httpx
+import os
+
+load_dotenv()
+
+CLIENT_ID = os.getenv("CLIENT_ID")
+CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 
 logging.basicConfig(level=LOG_LEVEL)
 logger = logging.getLogger(__name__)
@@ -85,6 +93,32 @@ app.include_router(inference_router, prefix="/api/v1", tags=["inference"])
 @app.get("/")
 async def root():
     return {"message": "CIFAR-100 Inference API is running"}
+
+@app.get("/login/github")
+def login_github():
+    redirect_url = (
+        "https://github.com/login/oauth/authorize"
+        f"?client_id={CLIENT_ID}&scope=read:user user:email"
+    )
+
+    return RedirectResponse(redirect_url)
+
+@app.get('/auth/callback')
+async def auth_callback(code: str):
+    async with httpx.AsyncClient() as client:
+        token_resp = await client.post(
+            "https://github.com/login/oauth/access_token",
+            data={
+                "client_id": CLIENT_ID,
+                "client_secret": CLIENT_SECRET,
+                "code": code,
+            },
+            headers={"Accept": "application/json"},
+        )
+    token_data = token_resp.json()
+    access_token = token_data.get("access_token")
+
+    return RedirectResponse(f"http://localhost:3000/auth/success?token={access_token}")    
 
 @app.get("/health")
 async def health_check():

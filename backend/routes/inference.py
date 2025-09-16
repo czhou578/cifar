@@ -4,7 +4,6 @@ from typing import Dict, Any
 import asyncio
 from models.model_loader import model_loader
 from utils.preprocessing import preprocess_image
-import time
 from concurrent.futures import ThreadPoolExecutor
 from cache import prediction_cache
 
