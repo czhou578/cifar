@@ -852,3 +852,61 @@ PKCE: Would include PKCE specific parameters like code_verifier, code_challenge,
 Resources Owner Credentials Grant Type: the trusted client would get the resource owner's credential
 
 Client Credentials Grant type: for microservices: using clientid and secret. This is for machine to machine communication, so it is very simple.
+
+# Full Stack Deep Learning Course
+
+## Development Infrastructure
+
+Data parallelism
+
+Model Parallelism: put each layer of model on GPU. You have to tuen amount of pipelining on batch size.
+
+Tensor Parallelism: split up matrix operations on multiple GPU's.
+
+## GPU's
+
+- How much data fits into GPU?
+- TFlops?
+- Communication between CPU and GPU -> how fast is it?
+
+## Memorization
+
+Memorization Test: Only really gross issues with training will show up with this test.
+
+Make sure to tune memorization tests to run quickly, so you can regularly run them.
+
+The best option for testing training is to regularly run training with new data that's coming in from production. This is still expensive, but it is directly related to improvements in model development, not just testing for breakages. Setting this up requires a data flywheel similar to what we talked about in Lecture 1. Further tooling needed to achieve will be discussed down the line.
+
+Models are functions themselves! Check if consistent values are being returned.
+
+Watch out for shape errors, numerical errors, out of memory errors
+
+Profile your code!
+
+## Data Management
+
+SQL, and Pandas
+
+Airflow, Dagster, Prefect? For Data processing
+
+Synthetic Data:
+
+Data versioning:
+
+Level 0 is bad: data just lives on file system
+Level 1: snapshot data each time you train
+Level 2: data versioned like code.
+Level 3: specialized solutions for working with large data files
+
+## Apply ML OPs to my workflow:
+
+Data → Model Development → Training → Evaluation → Deployment → Monitoring → Iteration
+
+DVC
+
+| Challenge in ML                    | How DVC Helps                                                                  |
+| ---------------------------------- | ------------------------------------------------------------------------------ |
+| **Huge datasets/models**           | Uses efficient storage and caching so Git repos stay small.                    |
+| **Reproducibility**                | Guarantees that a specific commit maps to a specific dataset and model hash.   |
+| **Team collaboration**             | Multiple people can share and update data/models without emailing large files. |
+| **Continuous training/deployment** | Works well in automated pipelines for retraining and redeployment.             |
