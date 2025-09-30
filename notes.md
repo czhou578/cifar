@@ -898,7 +898,7 @@ Level 1: snapshot data each time you train
 Level 2: data versioned like code.
 Level 3: specialized solutions for working with large data files
 
-## Apply ML OPs to my workflow:
+# Apply ML OPs to my workflow:
 
 Data → Model Development → Training → Evaluation → Deployment → Monitoring → Iteration
 
@@ -910,3 +910,33 @@ DVC
 | **Reproducibility**                | Guarantees that a specific commit maps to a specific dataset and model hash.   |
 | **Team collaboration**             | Multiple people can share and update data/models without emailing large files. |
 | **Continuous training/deployment** | Works well in automated pipelines for retraining and redeployment.             |
+
+## Testing:
+
+Memorization tests can be used to easily check that the training loop is working correctly. If the model can't overfit a tiny dataset, something is wrong.
+
+Small bugs are not going to show up, but big bugs will. If you include the length of run time in your coverage, and you see that the number of epochs to overfit is increasing, that is a sign that something is wrong.
+
+Make the memorization tests easy to run, under 10 minutes is ideal.
+
+- reduce dataset size
+- turn off regularization
+- reduce model size
+
+Models are functions themselves! Check if consistent values are being returned.
+
+Testing in production is the best way!
+
+Track gradient norms. Infinity or NaN values are a sign of instability. Normalization is typically a cause of this. To fix, try Python 64 bit floats first!
+
+## Deployment:
+
+Batch prediction: Use a separate endpoint for batch predictions to improve throughput.
+
+You can have reasonably fresh predictions to return to those users that are stored in your database.
+
+Model as a Service: Use a microservice architecture to deploy your model as a standalone service. This allows for easier scaling and updating of the model without affecting other parts of your application.
+
+## MLflow:
+
+Logging artifacts:

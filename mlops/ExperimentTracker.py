@@ -32,13 +32,40 @@ class ExperimentTracker:
             else:
                 mlflow.log_metric(key, value)
     
-    def log_model(self, model, model_name: str = "cifar100_model"):
-        """Log PyTorch model"""
-        mlflow.pytorch.log_model(
-            model, 
-            model_name,
-            registered_model_name=f"{model_name}"
-        )
+    def log_model(self, model, artifact_path: str = "model", registered_model_name: str = None):
+        """
+        Log PyTorch model with proper parameter separation
+        
+        Args:
+            model: The trained PyTorch model
+            artifact_path: Where to store model files in the run (simple path)
+            registered_model_name: Name for Unity Catalog registration (catalog.schema.model_name)
+        """
+        try:
+            if registered_model_name:
+                # Register model in Unity Catalog
+                mlflow.pytorch.log_model(
+                    pytorch_model=model,
+                    artifact_path=artifact_path,  # Simple path like "model"
+                    registered_model_name=registered_model_name  # Unity Catalog name
+                )
+                print(f"✅ Model logged and registered as: {registered_model_name}")
+            else:
+                # Just log as artifact without registration
+                mlflow.pytorch.log_model(
+                    pytorch_model=model,
+                    artifact_path=artifact_path
+                )
+                print(f"✅ Model logged as artifact at: {artifact_path}")
+                
+        except Exception as e:
+            print(f"❌ Model logging failed: {e}")
+            # Fallback: basic artifact logging
+            try:
+                mlflow.pytorch.log_model(pytorch_model=model, artifact_path=artifact_path)
+                print(f"✅ Fallback: Model logged as artifact only")
+            except Exception as fallback_error:
+                print(f"❌ All model logging failed: {fallback_error}")
     
     def log_artifact(self, local_path: str, artifact_path: str = None):
         """Log files/artifacts"""

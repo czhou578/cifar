@@ -15,46 +15,71 @@ interface PredictionResponse {
 }
 
 const ImageClassifier: React.FC = () => {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
-  const [predictions, setPredictions] = useState<Prediction[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [previews, setPreviews] = useState<string[]>([]);
+  const [predictions, setPredictions] = useState<Prediction[][]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   // Backend API URL - adjust this to match your FastAPI server
   const API_BASE_URL = "http://localhost:8000/api/v1";
 
-  const handleFileSelect = (file: File) => {
-    // Validate file type
-    if (!file.type.startsWith("image/")) {
-      setError("Please select a valid image file");
-      return;
+  const handleFileSelect = (files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    const validFiles: File[] = [];
+    const newPreviews: string[] = [];
+    let loadedCount = 0;
+
+    fileArray.forEach((file, index) => {
+      // Validate file type
+      if (!file.type.startsWith("image/")) {
+        setError(`${file.name} is not a valid image file`);
+        return;
+      }
+
+      // Validate file size (10MB limit)
+      if (file.size > 10 * 1024 * 1024) {
+        setError(`${file.name} is too large (max 10MB)`);
+        return;
+      }
+
+      validFiles.push(file);
+
+      // Create preview
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        newPreviews[index] = e.target?.result as string;
+        loadedCount++;
+
+        // Update previews when all images are loaded
+        if (loadedCount === validFiles.length) {
+          setPreviews(newPreviews.filter(Boolean)); // Remove empty slots
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+
+    if (validFiles.length > 0) {
+      setSelectedFiles(validFiles);
+      setError(null);
+      setPredictions([]);
     }
-
-    // Validate file size (10MB limit)
-    if (file.size > 10 * 1024 * 1024) {
-      setError("File size must be less than 10MB");
-      return;
-    }
-
-    setSelectedFile(file);
-    setError(null);
-    setPredictions([]);
-
-    // Create preview
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setPreview(e.target?.result as string);
-    };
-    reader.readAsDataURL(file);
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      handleFileSelect(file);
+    const files = event.target.files;
+    if (files && files.length > 0) {
+      handleFileSelect(files);
+    }
+  };
+
+  const handleFolderChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (files && files.length > 0) {
+      handleFileSelect(files);
     }
   };
 
@@ -72,9 +97,9 @@ const ImageClassifier: React.FC = () => {
     event.preventDefault();
     setDragOver(false);
 
-    const file = event.dataTransfer.files[0];
-    if (file) {
-      handleFileSelect(file);
+    const files = event.dataTransfer.files;
+    if (files && files.length > 0) {
+      handleFileSelect(files);
     }
   };
 
@@ -82,32 +107,42 @@ const ImageClassifier: React.FC = () => {
     fileInputRef.current?.click();
   };
 
+  const handleFolderClick = () => {
+    folderInputRef.current?.click();
+  };
+
   const handleClassify = async () => {
-    if (!selectedFile) return;
+    if (selectedFiles.length === 0) return;
 
     setLoading(true);
     setError(null);
+    const allPredictions: Prediction[][] = [];
 
     try {
-      const formData = new FormData();
-      formData.append("file", selectedFile);
+      // Process files one by one or in batches
+      for (const file of selectedFiles) {
+        const formData = new FormData();
+        formData.append("file", file);
 
-      const response = await fetch(`${API_BASE_URL}/predict?top_k=5`, {
-        method: "POST",
-        body: formData,
-      });
+        const response = await fetch(`${API_BASE_URL}/predict?top_k=5`, {
+          method: "POST",
+          body: formData,
+        });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data: PredictionResponse = await response.json();
+
+        if (data.status === "success") {
+          allPredictions.push(data.predictions);
+        } else {
+          throw new Error(`Classification failed for ${file.name}`);
+        }
       }
 
-      const data: PredictionResponse = await response.json();
-
-      if (data.status === "success") {
-        setPredictions(data.predictions);
-      } else {
-        throw new Error("Classification failed");
-      }
+      setPredictions(allPredictions);
     } catch (err) {
       setError(
         err instanceof Error
@@ -121,12 +156,15 @@ const ImageClassifier: React.FC = () => {
   };
 
   const handleReset = () => {
-    setSelectedFile(null);
-    setPreview(null);
+    setSelectedFiles([]);
+    setPreviews([]);
     setPredictions([]);
     setError(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
+    }
+    if (folderInputRef.current) {
+      folderInputRef.current.value = "";
     }
   };
 
@@ -145,61 +183,99 @@ const ImageClassifier: React.FC = () => {
       <div className="upload-section">
         <div
           className={`drop-zone ${dragOver ? "drag-over" : ""} ${
-            selectedFile ? "has-file" : ""
+            selectedFiles.length > 0 ? "has-file" : ""
           }`}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          onClick={handleUploadClick}
         >
-          {preview ? (
-            <div className="preview-container">
-              <img src={preview} alt="Preview" className="preview-image" />
-              <div className="file-info">
-                <p className="file-name">{selectedFile?.name}</p>
-                <p className="file-size">
-                  {selectedFile ? (selectedFile.size / 1024).toFixed(1) : 0} KB
-                </p>
-              </div>
+          <div className="drop-zone-content">
+            <div className="upload-icon">📤</div>
+            <h3>Drop images here or click to upload</h3>
+            <p className="drop-text">
+              Support for multiple images at once. JPG, PNG, WEBP accepted.
+            </p>
+            <div className="upload-buttons">
+              <button className="choose-files-btn" onClick={handleUploadClick}>
+                📁 Choose Files
+              </button>
+              <button className="upload-folder-btn" onClick={handleFolderClick}>
+                📂 Upload Folder
+              </button>
             </div>
-          ) : (
-            <div className="drop-zone-content">
-              <div className="upload-icon">📷</div>
-              <p className="drop-text">
-                Drop an image here or{" "}
-                <span className="click-text">click to upload</span>
-              </p>
-              <p className="file-types">
-                Supports: JPG, PNG, BMP, TIFF (max 10MB)
-              </p>
-            </div>
-          )}
+          </div>
         </div>
 
         <input
           ref={fileInputRef}
           type="file"
           accept="image/*"
+          multiple
           onChange={handleFileChange}
           className="file-input"
         />
 
-        <div className="button-group">
+        <input
+          ref={folderInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          {...({ webkitdirectory: "" } as any)}
+          onChange={handleFolderChange}
+          className="file-input"
+        />
+      </div>
+
+      {/* Images Display Section */}
+      {selectedFiles.length > 0 && (
+        <div className="images-display-section">
+          <div className="section-header">
+            <div className="upload-icon">�</div>
+            <div>
+              <h3>
+                {selectedFiles.length} image
+                {selectedFiles.length > 1 ? "s" : ""} uploaded
+              </h3>
+              <p>Ready to classify your images</p>
+            </div>
+          </div>
+          <div className="uploaded-images-grid">
+            {previews.map((preview, index) => (
+              <div key={index} className="uploaded-image-item">
+                <img
+                  src={preview}
+                  alt={`Upload ${index + 1}`}
+                  className="uploaded-image-preview"
+                />
+                <p className="uploaded-image-name">
+                  {selectedFiles[index]?.name}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Classify Button */}
+      {selectedFiles.length > 0 && (
+        <div className="classify-section">
           <button
             onClick={handleClassify}
-            disabled={!selectedFile || loading}
+            disabled={selectedFiles.length === 0 || loading}
             className="classify-button"
           >
-            {loading ? "Classifying..." : "Classify Image"}
+            {loading
+              ? "Classifying..."
+              : `Classify ${selectedFiles.length} Image${
+                  selectedFiles.length > 1 ? "s" : ""
+                }`}
           </button>
 
-          {selectedFile && (
-            <button onClick={handleReset} className="reset-button">
-              Reset
-            </button>
-          )}
+          <button onClick={handleReset} className="reset-button">
+            Reset
+          </button>
         </div>
-      </div>
+      )}
 
       {error && (
         <div className="error-message">
@@ -210,49 +286,61 @@ const ImageClassifier: React.FC = () => {
       {loading && (
         <div className="loading-spinner">
           <div className="spinner"></div>
-          <p>Analyzing your image...</p>
+          <p>Analyzing your images...</p>
         </div>
       )}
 
       {predictions.length > 0 && (
         <div className="results-section">
           <h2>Classification Results</h2>
-          <div className="predictions-list">
-            {predictions.map((prediction, index) => (
-              <div
-                key={index}
-                className={`prediction-item ${
-                  index === 0 ? "top-prediction" : ""
-                }`}
-              >
-                <div className="prediction-rank">
-                  {index === 0 ? "🏆" : `#${index + 1}`}
-                </div>
-                <div className="prediction-details">
-                  <div className="class-name">
-                    {prediction.class_name.replace("_", " ")}
-                  </div>
-                  <div className="class-id">
-                    Class ID: {prediction.class_id}
-                  </div>
-                </div>
-                <div className="confidence-section">
-                  <div
-                    className="confidence-bar"
-                    style={{
-                      width: `${prediction.confidence * 100}%`,
-                      backgroundColor: getConfidenceColor(
-                        prediction.confidence
-                      ),
-                    }}
-                  ></div>
-                  <div className="confidence-text">
-                    {formatConfidence(prediction.confidence)}%
-                  </div>
-                </div>
+          {predictions.map((predictionSet, imageIndex) => (
+            <div key={imageIndex} className="image-results">
+              <div className="image-info">
+                <img
+                  src={previews[imageIndex]}
+                  alt={`Preview ${imageIndex + 1}`}
+                  className="result-preview"
+                />
+                <h3>{selectedFiles[imageIndex]?.name}</h3>
               </div>
-            ))}
-          </div>
+              <div className="predictions-list">
+                {predictionSet.map((prediction, index) => (
+                  <div
+                    key={index}
+                    className={`prediction-item ${
+                      index === 0 ? "top-prediction" : ""
+                    }`}
+                  >
+                    <div className="prediction-rank">
+                      {index === 0 ? "🏆" : `#${index + 1}`}
+                    </div>
+                    <div className="prediction-details">
+                      <div className="class-name">
+                        {prediction.class_name.replace("_", " ")}
+                      </div>
+                      <div className="class-id">
+                        Class ID: {prediction.class_id}
+                      </div>
+                    </div>
+                    <div className="confidence-section">
+                      <div
+                        className="confidence-bar"
+                        style={{
+                          width: `${prediction.confidence * 100}%`,
+                          backgroundColor: getConfidenceColor(
+                            prediction.confidence
+                          ),
+                        }}
+                      ></div>
+                      <div className="confidence-text">
+                        {formatConfidence(prediction.confidence)}%
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
