@@ -7,13 +7,6 @@ interface Prediction {
   confidence: number;
 }
 
-interface PredictionResponse {
-  status: string;
-  filename: string;
-  predictions: Prediction[];
-  top_prediction: Prediction;
-}
-
 const ImageClassifier: React.FC = () => {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
@@ -116,33 +109,34 @@ const ImageClassifier: React.FC = () => {
 
     setLoading(true);
     setError(null);
-    const allPredictions: Prediction[][] = [];
 
     try {
-      // Process files one by one or in batches
-      for (const file of selectedFiles) {
-        const formData = new FormData();
-        formData.append("file", file);
+      // Create FormData with all files for batch processing
+      const formData = new FormData();
+      selectedFiles.forEach((file) => {
+        formData.append("files", file);
+      });
 
-        const response = await fetch(`${API_BASE_URL}/predict?top_k=5`, {
-          method: "POST",
-          body: formData,
-        });
+      const response = await fetch(`${API_BASE_URL}/predict-batch?top_k=5`, {
+        method: "POST",
+        body: formData,
+      });
 
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data: PredictionResponse = await response.json();
-
-        if (data.status === "success") {
-          allPredictions.push(data.predictions);
-        } else {
-          throw new Error(`Classification failed for ${file.name}`);
-        }
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      setPredictions(allPredictions);
+      const data = await response.json();
+
+      if (data.status === "success" && data.results) {
+        // Extract predictions in the same order as uploaded files
+        const allPredictions: Prediction[][] = data.results.map(
+          (result: any) => result.predictions
+        );
+        setPredictions(allPredictions);
+      } else {
+        throw new Error("Batch classification failed");
+      }
     } catch (err) {
       setError(
         err instanceof Error

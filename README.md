@@ -48,4 +48,5 @@ Topics that I learned while doing this project:
 22. Test Time Augmentation for improving test time accuracy
 23. Trying to minimize the memory of a model by garbage collection and reduced precision
 24. Implementing OAuth 2.0 connection to GitHub, on frontend and backend
-25.
+25. Deploying a model on HuggingFace Spaces
+26. Learning how to log hyperparameters onto MLflow

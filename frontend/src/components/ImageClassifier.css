@@ -1,12 +1,20 @@
 .image-classifier {
   max-width: 800px;
   margin: 0 auto;
-  padding: 20px;
+  padding: 10px 20px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
 }
 
 .upload-section {
   margin-bottom: 30px;
+  width: 100%;
+  display: flex;
+  justify-content: center;
 }
 
 .drop-zone {
@@ -22,6 +30,8 @@
   align-items: center;
   justify-content: center;
   backdrop-filter: blur(10px);
+  width: 100%;
+  max-width: 600px;
 }
 
 .drop-zone:hover {
