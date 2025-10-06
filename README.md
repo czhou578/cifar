@@ -50,3 +50,4 @@ Topics that I learned while doing this project:
 24. Implementing OAuth 2.0 connection to GitHub, on frontend and backend
 25. Deploying a model on HuggingFace Spaces
 26. Learning how to log hyperparameters onto MLflow
+27. Use a HuggingFace pretrained model for image captioning

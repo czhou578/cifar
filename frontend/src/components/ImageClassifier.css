@@ -390,6 +390,50 @@
   color: #333;
 }
 
+.caption-toggle {
+  margin: 20px 0;
+  text-align: center;
+}
+
+.caption-toggle label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 10px 20px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  transition: background 0.3s;
+}
+
+.caption-toggle label:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.caption-toggle input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.caption-box {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 15px;
+  border-radius: 10px;
+  margin: 10px 0;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.caption-text {
+  color: white;
+  font-size: 16px;
+  line-height: 1.5;
+  margin: 0;
+  text-align: center;
+  font-weight: 500;
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
   .image-classifier {

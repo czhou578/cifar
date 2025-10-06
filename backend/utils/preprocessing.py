@@ -30,5 +30,5 @@ def preprocess_image(image_bytes: bytes) -> torch.Tensor:
         return tensor
     
     except Exception as e:
-        logger.error(f'Error preprocessing imageL {e}')
+        logger.error(f'Error preprocessing image {e}')
         raise ValueError(f"Invalid image format: {e}")

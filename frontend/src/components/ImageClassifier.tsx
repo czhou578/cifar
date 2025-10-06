@@ -7,13 +7,19 @@ interface Prediction {
   confidence: number;
 }
 
+interface PredictionResult {
+  predictions: Prediction[];
+  caption?: string;
+}
+
 const ImageClassifier: React.FC = () => {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
-  const [predictions, setPredictions] = useState<Prediction[][]>([]);
+  const [predictions, setPredictions] = useState<PredictionResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [generateCaptions, setGenerateCaptions] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
@@ -105,19 +111,26 @@ const ImageClassifier: React.FC = () => {
   };
 
   const handleClassify = async () => {
-    if (selectedFiles.length === 0) return;
+    if (selectedFiles.length === 0) {
+      setError("Please select at least one image first");
+      return;
+    }
 
     setLoading(true);
     setError(null);
 
     try {
-      // Create FormData with all files for batch processing
       const formData = new FormData();
       selectedFiles.forEach((file) => {
         formData.append("files", file);
       });
 
-      const response = await fetch(`${API_BASE_URL}/predict-batch?top_k=5`, {
+      // Add caption generation parameter
+      const url = generateCaptions
+        ? `${API_BASE_URL}/predict-batch?generate_captions=true`
+        : `${API_BASE_URL}/predict-batch`;
+
+      const response = await fetch(url, {
         method: "POST",
         body: formData,
       });
@@ -129,21 +142,21 @@ const ImageClassifier: React.FC = () => {
       const data = await response.json();
 
       if (data.status === "success" && data.results) {
-        // Extract predictions in the same order as uploaded files
-        const allPredictions: Prediction[][] = data.results.map(
-          (result: any) => result.predictions
-        );
-        setPredictions(allPredictions);
+        console.log("API Response:", data.results);
+
+        // Store the full results including predictions and captions
+        const fullResults: PredictionResult[] = data.results.map((r: any) => ({
+          predictions: r.predictions,
+          caption: r.caption,
+        }));
+
+        setPredictions(fullResults);
       } else {
-        throw new Error("Batch classification failed");
+        throw new Error("Invalid response format");
       }
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "An error occurred during classification"
-      );
-      setPredictions([]);
+      setError(err instanceof Error ? err.message : "Classification failed");
+      console.error("Classification error:", err);
     } finally {
       setLoading(false);
     }
@@ -271,6 +284,18 @@ const ImageClassifier: React.FC = () => {
         </div>
       )}
 
+      {/* Add caption toggle */}
+      <div className="caption-toggle">
+        <label>
+          <input
+            type="checkbox"
+            checked={generateCaptions}
+            onChange={(e) => setGenerateCaptions(e.target.checked)}
+          />
+          Generate creative captions ✨
+        </label>
+      </div>
+
       {error && (
         <div className="error-message">
           <strong>Error:</strong> {error}
@@ -284,50 +309,59 @@ const ImageClassifier: React.FC = () => {
         </div>
       )}
 
+      {/* Display results with captions */}
       {predictions.length > 0 && (
         <div className="results-section">
-          <h2>Classification Results</h2>
-          {predictions.map((predictionSet, imageIndex) => (
-            <div key={imageIndex} className="image-results">
+          {predictions.map((result, idx) => (
+            <div key={idx} className="image-results">
               <div className="image-info">
                 <img
-                  src={previews[imageIndex]}
-                  alt={`Preview ${imageIndex + 1}`}
+                  src={previews[idx]}
+                  alt={`Preview ${idx}`}
                   className="result-preview"
                 />
-                <h3>{selectedFiles[imageIndex]?.name}</h3>
+                <h3>{selectedFiles[idx]?.name}</h3>
               </div>
+
+              {/* Show caption if available */}
+              {result.caption && (
+                <div className="caption-box">
+                  <p className="caption-text">{result.caption}</p>
+                </div>
+              )}
+
+              {/* Display all predictions */}
               <div className="predictions-list">
-                {predictionSet.map((prediction, index) => (
+                {result.predictions.map((pred, predIdx) => (
                   <div
-                    key={index}
+                    key={predIdx}
                     className={`prediction-item ${
-                      index === 0 ? "top-prediction" : ""
+                      predIdx === 0 ? "top-prediction" : ""
                     }`}
                   >
                     <div className="prediction-rank">
-                      {index === 0 ? "🏆" : `#${index + 1}`}
+                      {predIdx === 0
+                        ? "🥇"
+                        : predIdx === 1
+                        ? "🥈"
+                        : predIdx === 2
+                        ? "🥉"
+                        : `${predIdx + 1}.`}
                     </div>
                     <div className="prediction-details">
-                      <div className="class-name">
-                        {prediction.class_name.replace("_", " ")}
-                      </div>
-                      <div className="class-id">
-                        Class ID: {prediction.class_id}
-                      </div>
+                      <div className="class-name">{pred.class_name}</div>
+                      <div className="class-id">Class ID: {pred.class_id}</div>
                     </div>
                     <div className="confidence-section">
                       <div
                         className="confidence-bar"
                         style={{
-                          width: `${prediction.confidence * 100}%`,
-                          backgroundColor: getConfidenceColor(
-                            prediction.confidence
-                          ),
+                          backgroundColor: getConfidenceColor(pred.confidence),
+                          width: `${pred.confidence * 100}px`,
                         }}
                       ></div>
                       <div className="confidence-text">
-                        {formatConfidence(prediction.confidence)}%
+                        {formatConfidence(pred.confidence)}%
                       </div>
                     </div>
                   </div>

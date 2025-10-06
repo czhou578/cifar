@@ -6,6 +6,9 @@ from models.model_loader import model_loader
 from utils.preprocessing import preprocess_image
 from concurrent.futures import ThreadPoolExecutor
 from cache import prediction_cache
+from caption.caption_generator import generate_caption, make_creative_caption
+from PIL import Image
+import io
 import time
 
 
@@ -22,8 +25,29 @@ async def run_inference(image_tensor):
 
     return await loop.run_in_executor(executor, model_loader.predict, image_tensor, 5)
 
+async def generation_caption_async(image_bytes):
+    """Generate caption in thread_pool"""
+    
+    try:
+        loop = asyncio.get_event_loop()
+
+        image = Image.open(io.BytesIO(image_bytes))
+
+        basic_caption = await loop.run_in_executor(executor, generate_caption, image)
+        creative_caption = make_creative_caption(basic_caption)
+
+        logger.info(f"Generated caption: {creative_caption}")
+
+        return creative_caption
+    except Exception as e:
+        logger.error(f"Caption generation error: {e}")
+        return "Caption generation failed"
+
 @router.post("/predict")
-async def predict_image(file: UploadFile = File(...), top_k: int = Query(default=5, ge=1, le=20, description="Number of top predictions to return")) -> Dict[str, Any]:
+async def predict_image(
+    file: UploadFile = File(...), 
+    top_k: int = Query(default=5, ge=1, le=20, description="Number of top predictions to return"),
+    generate_captions: bool = Query(default=False, description="Generate creative captions")) -> Dict[str, Any]:
     """
     Predict CIFAR-100 class for uploaded image
     """
@@ -47,7 +71,7 @@ async def predict_image(file: UploadFile = File(...), top_k: int = Query(default
         if cached_predictions:
             logger.info(f"Cache hit for predictions. Fetching from cache")
 
-            return {
+            result = {
                 "status": "success",
                 "filename": file.filename,
                 "predictions": cached_predictions,  # Fix: Use cached_predictions instead of predictions
@@ -55,16 +79,26 @@ async def predict_image(file: UploadFile = File(...), top_k: int = Query(default
                 "cached": True
             }
 
+            if generate_captions:
+                result["caption"] = await generation_caption_async(image_bytes)
+
+            return result
+
         predictions = await run_inference(image_tensor)
 
         prediction_cache.set(image_tensor, predictions)
 
-        return {
+        result = {
             "status": "success",
             "filename": file.filename,
             "predictions": predictions,
             "top_prediction": predictions[0] if predictions else None            
         }
+
+        if generate_captions:
+            result["caption"] = await generation_caption_async(image_bytes)
+        
+        return result
     
     except HTTPException:
         raise
@@ -76,7 +110,8 @@ async def predict_image(file: UploadFile = File(...), top_k: int = Query(default
 @router.post("/predict-batch")
 async def predict_batch(
     files: List[UploadFile] = File(...),
-    top_k: int = Query(default=5, ge=1, le=20, description="Number of top predictions to return")
+    top_k: int = Query(default=5, ge=1, le=20, description="Number of top predictions to return"),
+    generate_captions: bool = Query(default=False, description="Generate creative captions")    
 ) -> Dict[str, Any]:
     """
     Predict CIFAR-100 classes for multiple uploaded images in a single request
@@ -93,6 +128,7 @@ async def predict_batch(
         # Validate and read all files
         valid_files = []
         file_names = []
+        image_bytes_list = []
         
         for file in files:
             # Validate content type
@@ -109,16 +145,18 @@ async def predict_batch(
                 logger.warning(f"Skipping large file: {file.filename}")
                 continue
             
+            # Read file once and store
+            image_bytes = await file.read()
+            image_bytes_list.append(image_bytes)
             valid_files.append(file)
             file_names.append(file.filename)
         
         if not valid_files:
             raise HTTPException(status_code=400, detail="No valid image files provided")
         
-        # Process all images in parallel
+        # Process all images in parallel using stored bytes
         image_tasks = []
-        for file in valid_files:
-            image_bytes = await file.read()
+        for image_bytes in image_bytes_list:  # ✅ Use stored bytes instead of reading again
             task = asyncio.get_event_loop().run_in_executor(
                 executor, preprocess_image, image_bytes
             )
@@ -177,7 +215,19 @@ async def predict_batch(
         # Combine and sort results by original index
         all_results = cached_results + uncached_results
         all_results.sort(key=lambda x: x["index"])
-        
+
+        # Generate captions if requested
+        if generate_captions:
+            logger.info("Generating captions for batch images")
+            caption_tasks = []
+            for image_bytes in image_bytes_list:  # ✅ Use stored bytes
+                caption_tasks.append(generation_caption_async(image_bytes))
+            
+            captions = await asyncio.gather(*caption_tasks)
+
+            for i, caption in enumerate(captions):
+                all_results[i]["caption"] = caption
+
         # Remove index from final response
         for result in all_results:
             del result["index"]
@@ -191,6 +241,7 @@ async def predict_batch(
             "cache_hits": len(cached_results),
             "cache_misses": len(uncached_results),
             "processing_time": round(processing_time, 3),
+            "captions_generated": generate_captions,
             "results": all_results
         }
     
