@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from models.model_loader import model_loader
 from routes.inference import router as inference_router
+from routes import websocket_inference
 from config import MODEL_PATH, LOG_LEVEL
 from dotenv import load_dotenv
 import httpx
@@ -89,6 +90,8 @@ app.add_middleware(
 )
 
 app.include_router(inference_router, prefix="/api/v1", tags=["inference"])
+app.include_router(websocket_inference.router, prefix="/api/v1", tags=["websocket"])
+
 
 @app.get("/")
 async def root():

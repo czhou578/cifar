@@ -434,6 +434,49 @@
   font-weight: 500;
 }
 
+/* WebSocket status indicator */
+.ws-status {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(10px);
+}
+
+.ws-status.connected {
+  background: rgba(76, 175, 80, 0.1);
+  color: #4CAF50;
+  border: 1px solid #4CAF50;
+}
+
+.ws-status.disconnected {
+  background: rgba(244, 67, 54, 0.1);
+  color: #F44336;
+  border: 1px solid #F44336;
+}
+
+/* Blinking cursor for streaming text */
+.cursor-blink {
+  animation: blink 1s infinite;
+  margin-left: 2px;
+  font-weight: bold;
+  color: white;
+}
+
+@keyframes blink {
+  0%, 49% {
+    opacity: 1;
+  }
+  50%, 100% {
+    opacity: 0;
+  }
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
   .image-classifier {
