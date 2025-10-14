@@ -940,3 +940,23 @@ Model as a Service: Use a microservice architecture to deploy your model as a st
 ## MLflow:
 
 Logging artifacts:
+
+- need job persistence for server restarts.
+- need progress updates
+- task queue
+  batch processing working pool
+- caption personalization engine
+
+- distributed caching, not needed for now
+
+Problems with current caching mechanism:
+
+Not Distributed: Each worker process has its own separate cache
+
+Worker 1 caches image A → stored only in Worker 1's memory
+Worker 2 gets same image A → cache miss, recomputes
+Lost on Restart: Server restarts = all cache gone
+
+Memory Limits: Single process memory = your limit
+
+No Eviction Policy: Dict grows forever until OOM

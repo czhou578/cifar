@@ -1,5 +1,6 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import "./ImageClassifier.css";
+import { useWebSocket } from "../hooks/useWebSocket";
 
 interface Prediction {
   class_name: string;
@@ -10,6 +11,8 @@ interface Prediction {
 interface PredictionResult {
   predictions: Prediction[];
   caption?: string;
+  streamingCaption?: string;
+  captionComplete?: boolean;
 }
 
 const ImageClassifier: React.FC = () => {
@@ -20,11 +23,144 @@ const ImageClassifier: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [generateCaptions, setGenerateCaptions] = useState(false);
+  const [useStreaming, setUseStreaming] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const completedCaptionsRef = useRef<number>(0); // Track completed captions
 
   // Backend API URL - adjust this to match your FastAPI server
   const API_BASE_URL = "http://localhost:8000/api/v1";
+  const WS_URL = "ws://localhost:8000/api/v1/ws/caption";
+
+  // WebSocket connection
+  const { sendMessage, lastMessage, isConnected, connect, disconnect } =
+    useWebSocket(WS_URL, false);
+
+  // Handle WebSocket messages
+  useEffect(() => {
+    console.log("Last WebSocket message:", lastMessage);
+
+    if (!lastMessage) return;
+
+    const fileIndex = selectedFiles.findIndex(
+      (f) => f.name === lastMessage.filename
+    );
+
+    if (fileIndex === -1) {
+      console.log("File not found:", lastMessage.filename);
+      // Don't return early for caption_complete - we still need to count it
+      if (lastMessage.type === "caption_complete") {
+        completedCaptionsRef.current += 1;
+        console.log(
+          `Completed ${completedCaptionsRef.current} of ${selectedFiles.length} captions`
+        );
+
+        if (completedCaptionsRef.current >= selectedFiles.length) {
+          console.log("All captions complete, setting loading to false");
+          setLoading(false);
+          completedCaptionsRef.current = 0; // Reset for next batch
+        }
+      }
+      return;
+    }
+
+    console.log("Processing message for file index:", fileIndex);
+
+    switch (lastMessage.type) {
+      case "caption_start":
+        setPredictions((prev) => {
+          const newPredictions = [...prev];
+          if (newPredictions[fileIndex]) {
+            newPredictions[fileIndex] = {
+              ...newPredictions[fileIndex],
+              streamingCaption: "",
+              captionComplete: false,
+            };
+            console.log("caption_start - Updated predictions:", newPredictions);
+          } else {
+            console.log("caption_start - No prediction at index:", fileIndex);
+          }
+          return newPredictions;
+        });
+        break;
+
+      case "caption_token":
+        setPredictions((prev) => {
+          const newPredictions = [...prev];
+          if (newPredictions[fileIndex]) {
+            newPredictions[fileIndex] = {
+              ...newPredictions[fileIndex],
+              streamingCaption: lastMessage.partial,
+            };
+            console.log(
+              "caption_token - Updated predictions:",
+              newPredictions[fileIndex]
+            );
+          } else {
+            console.log("caption_token - No prediction at index:", fileIndex);
+          }
+          return newPredictions;
+        });
+        break;
+
+      case "caption_complete":
+        setPredictions((prev) => {
+          const newPredictions = [...prev];
+          if (newPredictions[fileIndex]) {
+            newPredictions[fileIndex] = {
+              ...newPredictions[fileIndex],
+              caption: lastMessage.caption,
+              streamingCaption: lastMessage.caption,
+              captionComplete: true,
+            };
+            console.log(
+              "caption_complete - Final predictions:",
+              newPredictions[fileIndex]
+            );
+          } else {
+            console.log(
+              "caption_complete - No prediction at index:",
+              fileIndex
+            );
+          }
+          return newPredictions;
+        });
+
+        // Increment completed count and check if all are done
+        completedCaptionsRef.current += 1;
+        console.log(
+          `Completed ${completedCaptionsRef.current} of ${selectedFiles.length} captions`
+        );
+
+        if (completedCaptionsRef.current >= selectedFiles.length) {
+          console.log("All captions complete, setting loading to false");
+          setLoading(false);
+          completedCaptionsRef.current = 0; // Reset for next batch
+        }
+        break;
+
+      case "error":
+        setError(lastMessage.error);
+        setLoading(false);
+        completedCaptionsRef.current = 0; // Reset on error
+        break;
+    }
+  }, [lastMessage, selectedFiles]); // REMOVED predictions from dependencies
+
+  useEffect(() => {
+    console.log("Predictions state updated:", predictions);
+  }, [predictions]);
+
+  // Connect WebSocket when captions are enabled
+  useEffect(() => {
+    if (generateCaptions && useStreaming) {
+      connect();
+    } else {
+      disconnect();
+    }
+
+    return () => disconnect();
+  }, [generateCaptions, useStreaming, connect, disconnect]);
 
   const handleFileSelect = (files: FileList | File[]) => {
     const fileArray = Array.from(files);
@@ -119,6 +255,84 @@ const ImageClassifier: React.FC = () => {
     setLoading(true);
     setError(null);
 
+    // Use WebSocket for streaming captions
+    if (generateCaptions && useStreaming && isConnected) {
+      await handleClassifyWebSocket();
+    } else {
+      // Use HTTP for batch processing
+      await handleClassifyHTTP();
+    }
+  };
+
+  const handleClassifyWebSocket = async () => {
+    try {
+      // Reset completed count
+      completedCaptionsRef.current = 0;
+
+      // Initialize predictions array
+      const initialPredictions: PredictionResult[] = selectedFiles.map(() => ({
+        predictions: [],
+        streamingCaption: "",
+        captionComplete: false,
+      }));
+      setPredictions(initialPredictions);
+
+      // Process each file
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+
+        // First, get predictions via HTTP (fast)
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const response = await fetch(`${API_BASE_URL}/predict`, {
+          method: "POST",
+          body: formData,
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+
+          // Update predictions
+          setPredictions((prev) => {
+            const newPredictions = [...prev];
+            newPredictions[i] = {
+              ...newPredictions[i],
+              predictions: data.predictions,
+            };
+            return newPredictions;
+          });
+        }
+
+        // Then stream caption via WebSocket
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = (reader.result as string).split(",")[1];
+
+          sendMessage({
+            type: "generate_caption",
+            image_base64: base64,
+            filename: file.name,
+          });
+        };
+        reader.readAsDataURL(file);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Classification failed");
+      setLoading(false);
+      completedCaptionsRef.current = 0; // Reset on error
+    }
+  };
+
+  const handleClassifyHTTP = async () => {
+    if (selectedFiles.length === 0) {
+      setError("Please select at least one image first");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
     try {
       const formData = new FormData();
       selectedFiles.forEach((file) => {
@@ -187,6 +401,15 @@ const ImageClassifier: React.FC = () => {
 
   return (
     <div className="image-classifier">
+      {/* WebSocket Connection Status */}
+      {generateCaptions && useStreaming && (
+        <div
+          className={`ws-status ${isConnected ? "connected" : "disconnected"}`}
+        >
+          {isConnected ? "🟢 Streaming Ready" : "🔴 Connecting..."}
+        </div>
+      )}
+
       <div className="upload-section">
         <div
           className={`drop-zone ${dragOver ? "drag-over" : ""} ${
@@ -323,10 +546,15 @@ const ImageClassifier: React.FC = () => {
                 <h3>{selectedFiles[idx]?.name}</h3>
               </div>
 
-              {/* Show caption if available */}
-              {result.caption && (
+              {/* Show caption with streaming effect */}
+              {result.streamingCaption && (
                 <div className="caption-box">
-                  <p className="caption-text">{result.caption}</p>
+                  <p className="caption-text">
+                    {result.streamingCaption}
+                    {!result.captionComplete && (
+                      <span className="cursor-blink">|</span>
+                    )}
+                  </p>
                 </div>
               )}
 
