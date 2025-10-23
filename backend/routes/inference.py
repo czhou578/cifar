@@ -6,10 +6,11 @@ from models.model_loader import model_loader
 from utils.preprocessing import preprocess_image
 from concurrent.futures import ThreadPoolExecutor
 from cache import prediction_cache
-from caption.caption_generator import generate_caption, make_creative_caption
+from caption.caption_generator import generate_caption
 from PIL import Image
 import io
-import time
+from datetime import datetime
+from redis_cache.job_manager import BatchJob, JobStatus, job_manager
 
 
 logger = logging.getLogger(__name__)
@@ -34,90 +35,114 @@ async def generation_caption_async(image_bytes):
         image = Image.open(io.BytesIO(image_bytes))
 
         basic_caption = await loop.run_in_executor(executor, generate_caption, image)
-        creative_caption = make_creative_caption(basic_caption)
 
-        logger.info(f"Generated caption: {creative_caption}")
+        logger.info(f"Generated caption: {basic_caption}")
 
-        return creative_caption
+        return basic_caption
     except Exception as e:
         logger.error(f"Caption generation error: {e}")
         return "Caption generation failed"
-
-@router.post("/predict")
-async def predict_image(
-    file: UploadFile = File(...), 
-    top_k: int = Query(default=5, ge=1, le=20, description="Number of top predictions to return"),
-    generate_captions: bool = Query(default=False, description="Generate creative captions")) -> Dict[str, Any]:
-    """
-    Predict CIFAR-100 class for uploaded image
-    """
-
-    try:
-        if not file.content_type or not file.content_type.startswith("image/"):
-            raise HTTPException(status_code=400, detail="File must be an image")
-
-        file.file.seek(0, 2)  # Seek to end to get file size
-        file_size = file.file.tell()
-        file.file.seek(0)     # Seek back to beginning
-
-        if file_size > 10 * 1024 * 1024:
-            raise HTTPException(status_code=413, detail="File too large!")
-
-        image_bytes = await file.read()
-        image_tensor = await asyncio.get_event_loop().run_in_executor(executor, preprocess_image, image_bytes)
-
-        cached_predictions = prediction_cache.get(image_tensor)
-
-        if cached_predictions:
-            logger.info(f"Cache hit for predictions. Fetching from cache")
-
-            result = {
-                "status": "success",
-                "filename": file.filename,
-                "predictions": cached_predictions,  # Fix: Use cached_predictions instead of predictions
-                "top_prediction": cached_predictions[0] if cached_predictions else None,      
-                "cached": True
-            }
-
-            if generate_captions:
-                result["caption"] = await generation_caption_async(image_bytes)
-
-            return result
-
-        predictions = await run_inference(image_tensor)
-
-        prediction_cache.set(image_tensor, predictions)
-
-        result = {
-            "status": "success",
-            "filename": file.filename,
-            "predictions": predictions,
-            "top_prediction": predictions[0] if predictions else None            
-        }
-
-        if generate_captions:
-            result["caption"] = await generation_caption_async(image_bytes)
-        
-        return result
     
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error during prediction {e}")
-        raise HTTPException(status_code=500, detail=f"Failure {e}")
 
+async def process_batch_job(job_id: str, image_bytes_list: List[bytes], file_names: List[str], generate_captions: bool = False):
+    """
+    Process batch job and accumulate results
+    """
+
+    logger.debug(f"Starting batch job {job_id} with {len(image_bytes_list)} images")
+    try:
+        # Mark as in progress
+        job_manager.update_job_status(job_id, JobStatus.IN_PROGRESS)
+
+        # Get the job object
+        job = job_manager.get_job(job_id)
+        if not job:
+            logger.error(f"Job {job_id} not found")
+            return
+
+        # Preprocess all images concurrently
+        image_tasks = []
+        for image_bytes in image_bytes_list:
+            task = asyncio.get_event_loop().run_in_executor(
+                executor, preprocess_image, image_bytes
+            )
+            image_tasks.append(task)
+        
+        image_tensors = await asyncio.gather(*image_tasks)
+        logger.debug(f"Preprocessed {len(image_tensors)} images for job {job_id}")
+
+        # Process each image
+        for i, tensor in enumerate(image_tensors):
+            try:
+                # Get predictions (check cache first)
+                cached = prediction_cache.get(tensor)
+                logger.debug(f"Cache lookup for {file_names[i]}: {'HIT' if cached else 'MISS'}")
+                logger.debug(f"Cache content: {cached}")
+                if cached:
+                    predictions = cached
+                else:
+                    predictions = await run_inference(tensor)
+                    logger.debug(f"Predictions for {file_names[i]}: {predictions}")
+                    prediction_cache.set(tensor, predictions)
+
+                # ✅ Build ONLY JSON-serializable result
+                result = {
+                    "filename": str(file_names[i]),  # Ensure string
+                    "predictions": [
+                        {
+                            "class": str(pred.get("class_name", "")),
+                            "confidence": float(pred.get("confidence", 0.0))
+                        }
+                        for pred in predictions
+                    ],
+                    "top_prediction": {
+                        "class": str(predictions[0].get("class_name", "")) if predictions else None,
+                        "confidence": float(predictions[0].get("confidence", 0.0)) if predictions else None
+                    } if predictions else None,
+                    "cached": bool(cached is not None)
+                }
+
+                # Generate caption if requested
+                if generate_captions:
+                    caption = await generation_caption_async(image_bytes_list[i])
+                    result["caption"] = str(caption)  # Ensure string
+                    job.captions.append(str(caption))
+
+                # Append result to job
+                job.results.append(result)
+                job.processed_images = i + 1
+                
+                # Update job in Redis
+                job_manager.update_job(job)
+                
+                logger.info(f"Job {job_id}: Processed {i+1}/{len(image_bytes_list)} - {file_names[i]}")
+
+            except Exception as e:
+                logger.error(f"Error processing image {file_names[i]}: {e}")
+                # Add error result
+                job.results.append({
+                    "filename": str(file_names[i]),
+                    "error": str(e)
+                })
+                job.processed_images = i + 1
+                job_manager.update_job(job)
+
+        # Mark as completed
+        job_manager.update_job_status(job_id, JobStatus.COMPLETED)
+        logger.info(f"Job {job_id} completed successfully with {len(job.results)} results")
+
+    except Exception as e:
+        logger.error(f"Error processing batch job {job_id}: {e}")
+        job_manager.update_job_status(job_id, JobStatus.FAILED, error_message=str(e))
 
 @router.post("/predict-batch")
 async def predict_batch(
     files: List[UploadFile] = File(...),
     top_k: int = Query(default=5, ge=1, le=20, description="Number of top predictions to return"),
-    generate_captions: bool = Query(default=False, description="Generate creative captions")    
 ) -> Dict[str, Any]:
     """
     Predict CIFAR-100 classes for multiple uploaded images in a single request
     """
-    start_time = time.time()
-    
     if len(files) > 50:
         raise HTTPException(status_code=400, detail="Maximum 50 images per batch")
     
@@ -154,99 +179,78 @@ async def predict_batch(
         if not valid_files:
             raise HTTPException(status_code=400, detail="No valid image files provided")
         
-        # Process all images in parallel using stored bytes
-        image_tasks = []
-        for image_bytes in image_bytes_list:  # ✅ Use stored bytes instead of reading again
-            task = asyncio.get_event_loop().run_in_executor(
-                executor, preprocess_image, image_bytes
-            )
-            image_tasks.append(task)
-        
-        # Wait for all preprocessing to complete
-        image_tensors = await asyncio.gather(*image_tasks)
-        
-        # Check cache and separate into cached and uncached
-        cached_results = []
-        uncached_indices = []
-        uncached_tensors = []
-        
-        for i, tensor in enumerate(image_tensors):
-            cached_predictions = prediction_cache.get(tensor)
-            if cached_predictions:
-                cached_results.append({
-                    "index": i,
-                    "filename": file_names[i],
-                    "predictions": cached_predictions,
-                    "top_prediction": cached_predictions[0] if cached_predictions else None,
-                    "cached": True
-                })
-            else:
-                uncached_indices.append(i)
-                uncached_tensors.append(tensor)
-        
-        # Run inference on uncached images
-        uncached_results = []
-        if uncached_tensors:
-            inference_tasks = []
-            for tensor in uncached_tensors:
-                task = asyncio.get_event_loop().run_in_executor(
-                    executor, model_loader.predict, tensor, top_k
-                )
-                inference_tasks.append(task)
-            
-            predictions_list = await asyncio.gather(*inference_tasks)
-            
-            # Cache results and format response
-            for i, predictions in enumerate(predictions_list):
-                original_index = uncached_indices[i]
-                tensor = uncached_tensors[i]
-                
-                # Cache the predictions
-                prediction_cache.set(tensor, predictions)
-                
-                uncached_results.append({
-                    "index": original_index,
-                    "filename": file_names[original_index],
-                    "predictions": predictions,
-                    "top_prediction": predictions[0] if predictions else None,
-                    "cached": False
-                })
-        
-        # Combine and sort results by original index
-        all_results = cached_results + uncached_results
-        all_results.sort(key=lambda x: x["index"])
+        job_id = job_manager.create_job(total_images=len(valid_files))
 
-        # Generate captions if requested
-        if generate_captions:
-            logger.info("Generating captions for batch images")
-            caption_tasks = []
-            for image_bytes in image_bytes_list:  # ✅ Use stored bytes
-                caption_tasks.append(generation_caption_async(image_bytes))
-            
-            captions = await asyncio.gather(*caption_tasks)
+        asyncio.create_task(process_batch_job(job_id, image_bytes_list, file_names))
 
-            for i, caption in enumerate(captions):
-                all_results[i]["caption"] = caption
+        return {
+            "status": "accepted",
+            "job_id": job_id,
+            "total_images": len(valid_files),
+            "message": "Batch processing started. Check job status for results.",
+            "status_url": f"/api/v1/batch-status/{job_id}"
+        }
+    except HTTPException as e:
+        raise HTTPException(status_code=500, detail=f"Batch processing failed: {str(e)}")
+    
 
-        # Remove index from final response
-        for result in all_results:
-            del result["index"]
-        
-        processing_time = time.time() - start_time
-        
+@router.get("/batch-status/{job_id}")
+async def get_batch_status(job_id: str) -> Dict[str, Any]:
+    """
+    Get batch job status and results
+    
+    Returns:
+    - For IN_PROGRESS: progress percentage and partial results
+    - For COMPLETED: all results
+    - For FAILED: error message
+    """
+    job = job_manager.get_job(job_id)
+    
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    
+    # Calculate progress
+    progress = 0
+    if job.total_images > 0:
+        progress = round((job.processed_images / job.total_images) * 100, 2)
+    
+    response = {
+        "job_id": job.job_id,
+        "status": job.status.value,
+        "total_images": job.total_images,
+        "processed_images": job.processed_images,
+        "progress": progress,
+        "created_at": job.created_at,
+        "updated_at": job.updated_at
+    }
+    
+    # Include results based on status
+    if job.status == JobStatus.COMPLETED:
+        response["results"] = job.results  # All results
+        response["captions"] = job.captions
+        logger.info(f"Returning {len(job.results)} results for job {job_id}")
+    elif job.status == JobStatus.IN_PROGRESS:
+        # Optionally return partial results
+        response["partial_results"] = job.results  # Results processed so far
+    elif job.status == JobStatus.FAILED:
+        response["error"] = job.error_message
+    
+    return response
+
+@router.get("/batch-jobs/")
+async def list_batch_jobs() -> Dict[str, Any]:
+    """
+    List all batch jobs.
+    """
+    try:
+        jobs = job_manager.get_jobs()
+        job_list = [job.to_dict() for job in jobs]
+
         return {
             "status": "success",
-            "total_images": len(files),
-            "processed_images": len(all_results),
-            "cache_hits": len(cached_results),
-            "cache_misses": len(uncached_results),
-            "processing_time": round(processing_time, 3),
-            "captions_generated": generate_captions,
-            "results": all_results
+            "jobs": job_list
         }
-    
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Batch prediction error: {e}")
-        raise HTTPException(status_code=500, detail=f"Batch processing failed: {str(e)}")
+        logger.error(f"Error listing batch jobs: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list batch jobs")
+

@@ -51,3 +51,6 @@ Topics that I learned while doing this project:
 25. Deploying a model on HuggingFace Spaces
 26. Learning how to log hyperparameters onto MLflow
 27. Use a HuggingFace pretrained model for image captioning
+28. Use WebSockets to stream tokens from backend to frontend for image captioning
+29. Use Redis to manage background jobs for image captioning
+30. Use Dataclasses in Python

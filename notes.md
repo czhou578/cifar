@@ -942,14 +942,13 @@ Model as a Service: Use a microservice architecture to deploy your model as a st
 Logging artifacts:
 
 - need job persistence for server restarts.
-- need progress updates
 - task queue
   batch processing working pool
 - caption personalization engine
 
 - distributed caching, not needed for now
 
-Problems with current caching mechanism:
+## Problems with current caching mechanism:
 
 Not Distributed: Each worker process has its own separate cache
 
@@ -960,3 +959,12 @@ Lost on Restart: Server restarts = all cache gone
 Memory Limits: Single process memory = your limit
 
 No Eviction Policy: Dict grows forever until OOM
+
+field(default_factory=list) - what does this mean
+dataclasses in python
+
+The error is happening because in Python dataclasses, all fields with default values must come after fields without defaults. You have created_at (no default) coming after results (has default).
+
+Generator in typing
+
+- A Generator is a special type of iterator that can yield multiple values over time, pausing its state between each yield. It allows you to iterate through a sequence of values without storing them all in memory at once.

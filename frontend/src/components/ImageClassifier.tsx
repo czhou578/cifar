@@ -22,8 +22,6 @@ const ImageClassifier: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [generateCaptions, setGenerateCaptions] = useState(false);
-  const [useStreaming, setUseStreaming] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const completedCaptionsRef = useRef<number>(0); // Track completed captions
@@ -147,20 +145,12 @@ const ImageClassifier: React.FC = () => {
     }
   }, [lastMessage, selectedFiles]); // REMOVED predictions from dependencies
 
-  useEffect(() => {
-    console.log("Predictions state updated:", predictions);
-  }, [predictions]);
-
   // Connect WebSocket when captions are enabled
   useEffect(() => {
-    if (generateCaptions && useStreaming) {
-      connect();
-    } else {
-      disconnect();
-    }
+    connect();
 
     return () => disconnect();
-  }, [generateCaptions, useStreaming, connect, disconnect]);
+  }, [connect, disconnect]);
 
   const handleFileSelect = (files: FileList | File[]) => {
     const fileArray = Array.from(files);
@@ -247,6 +237,7 @@ const ImageClassifier: React.FC = () => {
   };
 
   const handleClassify = async () => {
+    // Main classify handler
     if (selectedFiles.length === 0) {
       setError("Please select at least one image first");
       return;
@@ -256,14 +247,12 @@ const ImageClassifier: React.FC = () => {
     setError(null);
 
     // Use WebSocket for streaming captions
-    if (generateCaptions && useStreaming && isConnected) {
+    if (isConnected) {
       await handleClassifyWebSocket();
-    } else {
-      // Use HTTP for batch processing
-      await handleClassifyHTTP();
     }
   };
 
+  // WebSocket + HTTP hybrid when generation captions is toggled
   const handleClassifyWebSocket = async () => {
     try {
       // Reset completed count
@@ -283,26 +272,55 @@ const ImageClassifier: React.FC = () => {
 
         // First, get predictions via HTTP (fast)
         const formData = new FormData();
-        formData.append("file", file);
+        formData.append("files", file);
 
-        const response = await fetch(`${API_BASE_URL}/predict`, {
+        const response = await fetch(`${API_BASE_URL}/predict-batch`, {
           method: "POST",
           body: formData,
         });
 
-        if (response.ok) {
-          const data = await response.json();
+        const { job_id } = await response.json();
 
-          // Update predictions
-          setPredictions((prev) => {
-            const newPredictions = [...prev];
-            newPredictions[i] = {
-              ...newPredictions[i],
-              predictions: data.predictions,
-            };
-            return newPredictions;
-          });
-        }
+        const pollForResults: any = async () => {
+          const statusResponse = await fetch(
+            `${API_BASE_URL}/batch-status/${job_id}`
+          );
+          const status = await statusResponse.json();
+
+          console.log(`Progress: ${status.progress}%`);
+
+          if (status.status === "COMPLETED") {
+            console.log("All results:", status.results);
+            return status.results;
+          }
+
+          if (status.status === "FAILED") {
+            throw new Error(status.error);
+          }
+
+          // Still processing, check again in 1 second
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          return pollForResults();
+        };
+
+        const results = await pollForResults();
+
+        setPredictions((prev) => {
+          const newPredictions = [...prev];
+          const result = results[0];
+
+          newPredictions[i] = {
+            predictions: result.predictions.map((pred: any) => ({
+              class_name: pred.class,
+              class_id: 0,
+              confidence: pred.confidence,
+            })),
+            caption: result.caption,
+            streamingCaption: result.caption || "",
+            captionComplete: true,
+          };
+          return newPredictions;
+        });
 
         // Then stream caption via WebSocket
         const reader = new FileReader();
@@ -324,59 +342,8 @@ const ImageClassifier: React.FC = () => {
     }
   };
 
-  const handleClassifyHTTP = async () => {
-    if (selectedFiles.length === 0) {
-      setError("Please select at least one image first");
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const formData = new FormData();
-      selectedFiles.forEach((file) => {
-        formData.append("files", file);
-      });
-
-      // Add caption generation parameter
-      const url = generateCaptions
-        ? `${API_BASE_URL}/predict-batch?generate_captions=true`
-        : `${API_BASE_URL}/predict-batch`;
-
-      const response = await fetch(url, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (data.status === "success" && data.results) {
-        console.log("API Response:", data.results);
-
-        // Store the full results including predictions and captions
-        const fullResults: PredictionResult[] = data.results.map((r: any) => ({
-          predictions: r.predictions,
-          caption: r.caption,
-        }));
-
-        setPredictions(fullResults);
-      } else {
-        throw new Error("Invalid response format");
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Classification failed");
-      console.error("Classification error:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleReset = () => {
+    // Reset all states
     setSelectedFiles([]);
     setPreviews([]);
     setPredictions([]);
@@ -399,16 +366,16 @@ const ImageClassifier: React.FC = () => {
     return "#F44336";
   };
 
+  console.log("predictions are ", predictions);
+
   return (
     <div className="image-classifier">
       {/* WebSocket Connection Status */}
-      {generateCaptions && useStreaming && (
-        <div
-          className={`ws-status ${isConnected ? "connected" : "disconnected"}`}
-        >
-          {isConnected ? "🟢 Streaming Ready" : "🔴 Connecting..."}
-        </div>
-      )}
+      <div
+        className={`ws-status ${isConnected ? "connected" : "disconnected"}`}
+      >
+        {isConnected ? "🟢 Streaming Ready" : "🔴 Connecting..."}
+      </div>
 
       <div className="upload-section">
         <div
@@ -507,18 +474,6 @@ const ImageClassifier: React.FC = () => {
         </div>
       )}
 
-      {/* Add caption toggle */}
-      <div className="caption-toggle">
-        <label>
-          <input
-            type="checkbox"
-            checked={generateCaptions}
-            onChange={(e) => setGenerateCaptions(e.target.checked)}
-          />
-          Generate creative captions ✨
-        </label>
-      </div>
-
       {error && (
         <div className="error-message">
           <strong>Error:</strong> {error}
@@ -535,7 +490,7 @@ const ImageClassifier: React.FC = () => {
       {/* Display results with captions */}
       {predictions.length > 0 && (
         <div className="results-section">
-          {predictions.map((result, idx) => (
+          {predictions.map((img, idx) => (
             <div key={idx} className="image-results">
               <div className="image-info">
                 <img
@@ -547,11 +502,11 @@ const ImageClassifier: React.FC = () => {
               </div>
 
               {/* Show caption with streaming effect */}
-              {result.streamingCaption && (
+              {img.streamingCaption && (
                 <div className="caption-box">
                   <p className="caption-text">
-                    {result.streamingCaption}
-                    {!result.captionComplete && (
+                    {img.streamingCaption}
+                    {!img.captionComplete && (
                       <span className="cursor-blink">|</span>
                     )}
                   </p>
@@ -560,7 +515,7 @@ const ImageClassifier: React.FC = () => {
 
               {/* Display all predictions */}
               <div className="predictions-list">
-                {result.predictions.map((pred, predIdx) => (
+                {img.predictions.map((pred, predIdx) => (
                   <div
                     key={predIdx}
                     className={`prediction-item ${

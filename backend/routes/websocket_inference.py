@@ -43,6 +43,8 @@ async def websocket_caption(websocket: WebSocket):
                     })
                     await asyncio.sleep(0.1)
                 
+                logger.info(f"Completed caption: {full_caption}")
+                
                 await websocket.send_json({
                     "type": "caption_complete",
                     "caption": full_caption 

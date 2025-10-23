@@ -2,6 +2,11 @@ import hashlib
 import torch
 from typing import List, Dict, Any, Optional
 
+'''
+This is an implementation of a simple in-memory cache for storing image predictions.
+For a production system, consider using a more robust caching solution like Redis or Memcached.
+'''
+
 class PredictionCache:
     def __init__(self, size):
         self.cache = {}
