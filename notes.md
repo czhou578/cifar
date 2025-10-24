@@ -968,3 +968,48 @@ The error is happening because in Python dataclasses, all fields with default va
 Generator in typing
 
 - A Generator is a special type of iterator that can yield multiple values over time, pausing its state between each yield. It allows you to iterate through a sequence of values without storing them all in memory at once.
+
+job scheduling with threads
+
+```text
+
+┌─────────────────────────────────────────────────────────┐
+│                    Client Request                        │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│  FastAPI Endpoint (/predict-batch)                       │
+│  1. Create job in Redis (JobManager)                     │
+│  2. Submit task to Queue                                 │
+└────────────────────┬────────────────────────────────────┘
+                     │
+          ┌──────────┴──────────┐
+          │                     │
+          ▼                     ▼
+┌──────────────────┐  ┌──────────────────────┐
+│  Redis           │  │  Async Queue          │
+│  (JobManager)    │  │  (AsyncJobQueue)      │
+│                  │  │                       │
+│  - Job Status    │  │  - Task Execution     │
+│  - Progress      │  │  - Worker Pool        │
+│  - Results       │  │  - Concurrency        │
+│  - Persistence   │  │  - Priority           │
+└──────────────────┘  └──────────┬────────────┘
+                                 │
+                      ┌──────────┴──────────┐
+                      │                     │
+                      ▼                     ▼
+              ┌─────────────┐      ┌─────────────┐
+              │  Worker 1   │      │  Worker 2   │
+              │             │      │             │
+              │ - Get task  │      │ - Get task  │
+              │ - Process   │      │ - Process   │
+              │ - Update    │      │ - Update    │
+              │   Redis     │      │   Redis     │
+              └─────────────┘      └─────────────┘
+```
+
+global keyword in Python:
+
+- The global keyword in Python is used to declare that a variable inside a function refers to a global variable (a variable defined outside the function). This allows you to modify the global variable from within the function.

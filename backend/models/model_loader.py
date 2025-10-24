@@ -3,6 +3,7 @@ import torch.nn as nn
 from collections import OrderedDict
 from pathlib import Path
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -77,56 +78,58 @@ class ModelLoader:
         self.model = None
         self.device = None
         self.class_names = None
+        self.model_lock = threading.Lock()
     
     def load_model(self, model_path: str, device: str = "cpu"):
         """Load the trained model from checkpoint"""
         try:
-            logger.info(f"Loading model from {model_path}")
-            
-            # Set device
-            self.device = torch.device(device)
-            
-            # Load model
-            if Path(model_path).suffix == '.pth':
-                # Load regular PyTorch model
-                self.model = MLP()
-                checkpoint = torch.load(model_path, map_location=self.device)
+            with self.model_lock:
+                logger.info(f"Loading model from {model_path}")
                 
-                state_dict = checkpoint['model_state_dict']
+                # Set device
+                self.device = torch.device(device)
+                
+                # Load model
+                if Path(model_path).suffix == '.pth':
+                    # Load regular PyTorch model
+                    self.model = MLP()
+                    checkpoint = torch.load(model_path, map_location=self.device)
+                    
+                    state_dict = checkpoint['model_state_dict']
 
-                if any(key.startswith('_orig_mod.') for key in state_dict.keys()):
-                    print("Detected compiled model state dict - extracting original weights...")
-                    # Remove '_orig_mod.' prefix from all keys
-                    cleaned_state_dict = {}
-                    for key, value in state_dict.items():
-                        if key.startswith('_orig_mod.'):
-                            new_key = key.replace('_orig_mod.', '')
-                            cleaned_state_dict[new_key] = value
-                        else:
-                            cleaned_state_dict[key] = value
-                    state_dict = cleaned_state_dict
+                    if any(key.startswith('_orig_mod.') for key in state_dict.keys()):
+                        print("Detected compiled model state dict - extracting original weights...")
+                        # Remove '_orig_mod.' prefix from all keys
+                        cleaned_state_dict = {}
+                        for key, value in state_dict.items():
+                            if key.startswith('_orig_mod.'):
+                                new_key = key.replace('_orig_mod.', '')
+                                cleaned_state_dict[new_key] = value
+                            else:
+                                cleaned_state_dict[key] = value
+                        state_dict = cleaned_state_dict
+                    
+                    self.model.load_state_dict(state_dict)
+                else:
+                    # Load quantized model
+                    self.model = torch.jit.load(model_path, map_location=self.device)
                 
-                self.model.load_state_dict(state_dict)
-            else:
-                # Load quantized model
-                self.model = torch.jit.load(model_path, map_location=self.device)
-            
-            self.model.to(self.device)
-            self.model.eval()
-            
-            # Set CPU optimizations
-            if device == "cpu":
-                torch.set_num_threads(4)
-                torch.set_num_interop_threads(2)
-                try:
-                    torch.backends.cpu.enable_onednn_fusion(True)
-                except:
-                    pass
-            
-            # Load CIFAR-100 class names
-            self._load_class_names()
-            
-            logger.info("Model loaded successfully")
+                self.model.to(self.device)
+                self.model.eval()
+                
+                # Set CPU optimizations
+                if device == "cpu":
+                    torch.set_num_threads(4)
+                    torch.set_num_interop_threads(2)
+                    try:
+                        torch.backends.cpu.enable_onednn_fusion(True)
+                    except:
+                        pass
+                
+                # Load CIFAR-100 class names
+                self._load_class_names()
+                
+                logger.info("Model loaded successfully")
             
         except Exception as e:
             logger.error(f"Error loading model: {e}")
@@ -157,31 +160,32 @@ class ModelLoader:
             raise RuntimeError("Model not loaded")
         
         try:
-            with torch.no_grad():
-                # Ensure correct device and format
-                image_tensor = image_tensor.to(self.device)
-                if len(image_tensor.shape) == 3:
-                    image_tensor = image_tensor.unsqueeze(0)  # Add batch dimension
-                
-                # Make prediction
-                outputs = self.model(image_tensor)
-                probabilities = torch.softmax(outputs, dim=1)
-                
-                # Get top-k predictions
-                top_probs, top_indices = torch.topk(probabilities, top_k, dim=1)
-                
-                results = []
-                for i in range(top_k):
-                    class_idx = top_indices[0][i].item()
-                    prob = top_probs[0][i].item()
-                    class_name = self.class_names[class_idx] if self.class_names else f"Class_{class_idx}"
-                    results.append({
-                        "class_name": class_name,
-                        "class_id": class_idx,
-                        "confidence": float(prob)
-                    })
-                
-                return results
+            with self.model_lock:
+                with torch.no_grad():
+                    # Ensure correct device and format
+                    image_tensor = image_tensor.to(self.device)
+                    if len(image_tensor.shape) == 3:
+                        image_tensor = image_tensor.unsqueeze(0)  # Add batch dimension
+                    
+                    # Make prediction
+                    outputs = self.model(image_tensor)
+                    probabilities = torch.softmax(outputs, dim=1)
+                    
+                    # Get top-k predictions
+                    top_probs, top_indices = torch.topk(probabilities, top_k, dim=1)
+                    
+                    results = []
+                    for i in range(top_k):
+                        class_idx = top_indices[0][i].item()
+                        prob = top_probs[0][i].item()
+                        class_name = self.class_names[class_idx] if self.class_names else f"Class_{class_idx}"
+                        results.append({
+                            "class_name": class_name,
+                            "class_id": class_idx,
+                            "confidence": float(prob)
+                        })
+                    
+                    return results
                 
         except Exception as e:
             logger.error(f"Error during prediction: {e}")

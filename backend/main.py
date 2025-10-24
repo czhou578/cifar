@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from models.model_loader import model_loader
 from routes.inference import router as inference_router
+from job_queue.queue import JobQueue, get_job_queue
 from routes import websocket_inference
 from config import MODEL_PATH, LOG_LEVEL
 from dotenv import load_dotenv
@@ -62,7 +63,15 @@ async def lifespan(app: FastAPI):
         model_loader.load_model(MODEL_PATH, device="cpu")
         logger.info("model load success")
 
+        queue = get_job_queue()
+        await queue.start()
+        logger.info("job queue started")
+
         yield
+
+        logger.info("Shutting down app")
+        await queue.stop()
+        logger.info("job queue stopped")
     
     except Exception as e:
         logger.error(e)

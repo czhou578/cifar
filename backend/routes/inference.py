@@ -11,6 +11,7 @@ from PIL import Image
 import io
 from datetime import datetime
 from redis_cache.job_manager import BatchJob, JobStatus, job_manager
+from job_queue.queue import get_job_queue
 
 
 logger = logging.getLogger(__name__)
@@ -181,7 +182,18 @@ async def predict_batch(
         
         job_id = job_manager.create_job(total_images=len(valid_files))
 
-        asyncio.create_task(process_batch_job(job_id, image_bytes_list, file_names))
+        # submit the job to the queue
+        queue = get_job_queue()
+        await queue.submit(
+            process_batch_job,
+            job_id,
+            image_bytes_list,
+            file_names,
+            generate_captions=True,
+            priority=0
+        )
+
+        logger.info(f"Submitted batch job {job_id} with {len(valid_files)} images to the queue")
 
         return {
             "status": "accepted",
