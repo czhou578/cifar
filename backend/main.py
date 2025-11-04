@@ -3,14 +3,15 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import RedirectResponse
-import logging
 from pathlib import Path
 from models.model_loader import model_loader
 from routes.inference import router as inference_router
-from job_queue.queue import JobQueue, get_job_queue
+from job_queue.queue import get_job_queue
 from routes import websocket_inference
 from config import MODEL_PATH, LOG_LEVEL
 from dotenv import load_dotenv
+from workers.process_manager import get_worker_manager
+import logging
 import httpx
 import os
 
@@ -66,6 +67,10 @@ async def lifespan(app: FastAPI):
         queue = get_job_queue()
         await queue.start()
         logger.info("job queue started")
+
+        worker_manager = get_worker_manager()
+        worker_manager.start()
+        logger.info("worker manager started")
 
         yield
 

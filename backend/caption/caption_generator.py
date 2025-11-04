@@ -4,6 +4,7 @@ import logging
 import torch
 from transformers import BlipProcessor, BlipForConditionalGeneration
 from typing import Generator, Callable
+import torch
 
 # Initialize the local pipeline
 
@@ -105,44 +106,53 @@ class StreamingCaptionGenerator:
         except Exception as e:
             logger.error(f"Caption generation error: {e}")
             # fallback = get_fallback_caption_with_class()
-            yield fallback
-            return fallback
 
-streaming_generator = StreamingCaptionGenerator(preload=True)  # Preload model at startup
+    def unload_model(self):
+        """Unload the model to free up resources"""
+        if self.model is not None:
+            logger.info("Unloading the caption model from memory")
+            del self.model
+            self.model = None
+            self.processor = None
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            logger.info("Model unloaded successfully")
+
+# streaming_generator = StreamingCaptionGenerator(preload=True)  # Preload model at startup
 
 
 # Convenience function
-def generate_caption_streaming(image_input, callback: Callable[[str], None] = None):
-    """Stream caption generation - yields tokens as they're generated"""
-    return streaming_generator.generate_caption_stream(image_input, callback)
+# def generate_caption_streaming(image_input, callback: Callable[[str], None] = None):
+#     """Stream caption generation - yields tokens as they're generated"""
+#     return streaming_generator.generate_caption_stream(image_input, callback)
 
 
-def generate_caption(image_input):
-    """
-    Generate a caption for an image (streaming version)
+# def generate_caption(image_input):
+#     """
+#     Generate a caption for an image (streaming version)
     
-    Args:
-        image_input: Can be:
-            - str: Path to image file
-            - PIL.Image.Image: PIL Image object
-            - bytes: Raw image bytes
+#     Args:
+#         image_input: Can be:
+#             - str: Path to image file
+#             - PIL.Image.Image: PIL Image object
+#             - bytes: Raw image bytes
     
-    Returns:
-        Generated caption string or None
-    """
-    try:
-        # Use streaming generator but collect all tokens
-        caption = ""
-        for token in generate_caption_streaming(image_input):
-            caption += token
+#     Returns:
+#         Generated caption string or None
+#     """
+#     try:
+#         # Use streaming generator but collect all tokens
+#         caption = ""
+#         for token in generate_caption_streaming(image_input):
+#             caption += token
         
-        if caption:
-            logger.info(f"✅ Generated caption: {caption}")
-            return caption
+#         if caption:
+#             logger.info(f"✅ Generated caption: {caption}")
+#             return caption
         
-        logger.warning("Caption generation returned empty result")
-        return None
+#         logger.warning("Caption generation returned empty result")
+#         return None
             
-    except Exception as e:
-        logger.error(f"Caption generation error: {e}")
-        return None
+#     except Exception as e:
+#         logger.error(f"Caption generation error: {e}")
+#         return None

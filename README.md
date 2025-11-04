@@ -14,6 +14,8 @@ Navigate to the `/backend` folder and run
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
+Make sure Redis server is also running on your machine for background jobs to work. The redis server can be started by running the Docker image locally on port 6379.
+
 ## Run Frontend:
 
 Navigate to the `/frontend` folder and run

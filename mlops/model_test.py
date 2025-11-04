@@ -1,6 +1,5 @@
-import pytest
-import torch
 from model import MLP
+import torch
 
 class TestModel:
     def test_model_memorization(self):

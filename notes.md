@@ -1013,3 +1013,103 @@ job scheduling with threads
 global keyword in Python:
 
 - The global keyword in Python is used to declare that a variable inside a function refers to a global variable (a variable defined outside the function). This allows you to modify the global variable from within the function.
+
+GIL in Python
+
+- The Global Interpreter Lock (GIL) is a mutex that protects access to Python objects, preventing multiple native threads from executing Python bytecodes at once. This means that even in a multi-threaded Python program, only one thread can execute Python code at a time.
+
+Implement Multi-Process captioning
+
+Process 1: FastAPI Frontend (Main Process)
+Handles all HTTP requests and WebSocket connections
+Manages the job queue (your existing AsyncJobQueue)
+Receives image upload requests
+Sends jobs to the worker process
+Returns results to clients
+Manages Redis for job status tracking
+
+Process 2: Model Worker (Separate Process)
+Runs in complete isolation
+Loads and keeps the Hugging Face caption model in memory
+Receives job requests from the frontend
+Processes images and generates captions
+Sends results back to frontend
+Can be restarted without affecting the main app
+
+Use multiprocessing.Pipe to communicate between the FastAPI process and the model worker process.
+
+Option 1: multiprocessing.Queue (Simplest)
+Built into Python, no external dependencies
+Use two queues: one for requests, one for responses
+Frontend puts jobs in request queue
+Worker takes from request queue, processes, puts results in response queue
+Frontend monitors response queue
+
+Implementation Steps
+
+Step 1: Separate the Model Loading
+Move all Hugging Face model code into a separate worker module
+Keep the model initialization completely isolated
+The worker process will load the model once on startup
+
+Step 2: Define Message Protocol
+Design the message format for communication:
+Request message: Contains job_id, image bytes, parameters
+Response message: Contains job_id, caption/error, status
+Heartbeat message: Worker sends "I'm alive" signals
+Use JSON or pickle for serialization
+
+Step 3: Create Worker Process Manager
+Write a function that starts the worker process
+The worker runs an infinite loop: check queue → process job → send result → repeat
+Handle graceful shutdown signals
+Implement timeout detection (if no response in X seconds, assume worker crashed)
+
+Step 4: Update FastAPI App
+On startup, spawn the worker process
+Monitor worker health with heartbeats
+If worker dies, restart it automatically
+On shutdown, gracefully terminate worker
+
+Step 5: Modify Job Processing Flow
+Old flow: FastAPI directly calls caption model
+
+New flow:
+FastAPI receives request
+Create job in Redis (existing JobManager)
+Send job to worker via queue/pipe
+Worker receives job
+Worker processes caption
+Worker sends result back
+FastAPI updates Redis with result
+Client polls for status
+
+Step 6: Handle Worker Failures
+Timeout detection: If no response after 30 seconds, mark job as failed
+Automatic restart: If worker process crashes, spawn a new one
+Retry logic: Resubmit failed jobs (up to 3 times)
+Circuit breaker: If worker keeps crashing, stop accepting new jobs temporarily
+
+Step 7: Add Process Monitoring
+Track worker process PID
+Monitor queue depth (how many jobs waiting)
+Log worker startup/shutdown
+Expose metrics endpoint showing worker status
+
+```text
+
+FastAPI                    Worker Process
+   │                            │
+   │──── Send Job ────────────→ │  (Request Queue)
+   │                            │
+   │                       [Processing...]
+   │                            │
+   │←──── Get Result ───────────│  (Response Queue)
+   │                            │
+
+```
+
+11/3/2025
+
+- trying to refactor to separate processes. the generate_caption function is no longer being used. got to fix the caption worker process.
+- trying to get rid of generate_caption function in websocket inference route.

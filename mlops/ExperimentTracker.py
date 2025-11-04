@@ -1,7 +1,5 @@
 import mlflow
 import mlflow.pytorch
-from pathlib import Path
-import os
 from datetime import datetime
 
 class ExperimentTracker:
