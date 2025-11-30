@@ -364,6 +364,8 @@ Problems with FP16:
 
 - Explosive loss: similar to the above, overflow is also much more likely with half precision. This is also managed by autocast() context.
 
+- One common error in any large deep learning model is the problem of underflowing gradients (i.e., your gradients are too small to take into account). float16 tensors often don't take into account extremely small variations. To prevent this, we can scale our gradients by some factor, so they aren't flushed to zero.
+
 **OneCycleLR**
 
 - prevents early gradient explosions with large models
@@ -400,7 +402,13 @@ Model predicts 100 images as "airplane"
 
 ------> Precision = 80/100 = 0.80 or 80%
 
-**Recall:** Of all the actual dogs in the dataset, how many did the model find?
+**Subset**
+
+- allows users to create a subset of a dataset by specifying a list of indices to include
+- good for training with smaller datasets
+- In practice, subsets are often used to limit the number of training or validation samples, for example, by randomly selecting a subset of the dataset for faster experimentation.
+- The Subset class supports standard Python indexing and slicing
+- **Recall:** Of all the actual dogs in the dataset, how many did the model find?
 
 There are 120 actual airplane images in the test set
 Model correctly identifies 80 of them as airplanes
@@ -541,127 +549,106 @@ Smaller batch makes your gradient estimation more rough and less precise.
 
 ## Previously Tried Code
 
-# scheduler = torch.optim.lr_scheduler.OneCycleLR(
+## Previous Training Run Configurations
 
-# optimizer,
+### Configuration 1: Scaled LR for Large Batch
 
-# max_lr=scaled_lr, # ~8e-3 (2x higher for larger batches)
+```python
+scheduler = torch.optim.lr_scheduler.OneCycleLR(
+    optimizer,
+    max_lr=scaled_lr,              # ~8e-3 (2x higher for larger batches)
+    epochs=num_epochs,
+    steps_per_epoch=len(train_loader),  # 44 instead of 176
+    pct_start=0.25,
+    anneal_strategy='cos',
+    div_factor=20.0,
+    final_div_factor=100.0
+)
+```
 
-# epochs=num_epochs,
+### Configuration 2: AdamW with High LR
 
-# steps_per_epoch=len(train_loader), # Will be 44 instead of 176
+```python
+optimizer = torch.optim.AdamW(
+    mlp.parameters(),
+    lr=3e-3,                       # Increased from 1e-3 to 2e-3
+    weight_decay=5e-4              # Reduced from 5e-3 to 1e-3
+)
+```
 
-# pct_start=0.25,
+### Configuration 3: Standard OneCycleLR (60 epochs)
 
-# anneal_strategy='cos',
+```python
+scheduler = torch.optim.lr_scheduler.OneCycleLR(
+    optimizer,
+    max_lr=4e-3,                   # Proven peak LR
+    epochs=num_epochs,             # 60
+    steps_per_epoch=len(train_loader),
+    pct_start=0.25,                # 25% warmup (15 epochs) - longer peak
+    anneal_strategy='cos',
+    div_factor=20.0,               # Start LR = 2e-4 (higher start)
+    final_div_factor=200.0         # Final LR = 2e-5 (much higher final)
+)
+```
 
-# div_factor=20.0,
+### Configuration 4: Batch-Scaled Max LR
 
-# final_div_factor=100.0
+```python
+new_max_lr = 2e-3 * (256 / 128)**0.25
+scheduler = torch.optim.lr_scheduler.OneCycleLR(
+    optimizer,
+    max_lr=new_max_lr,
+    epochs=num_epochs,
+    steps_per_epoch=len(train_loader),
+    pct_start=0.15,                # Increased from 0.1 to 0.3
+    anneal_strategy='cos'
+)
+```
 
-# )
+### Configuration 5: Linear Batch Scaling (60 epochs)
 
-# optimizer = torch.optim.AdamW(
+```python
+base_max_lr = 4e-3                 # Higher for faster convergence in 60 epochs
+batch_size = 256
+scaling_factor = (batch_size / 256) ** 0.5  # Linear scaling
+max_lr = base_max_lr * scaling_factor       # = 4e-3
 
-# mlp.parameters(),
+scheduler = torch.optim.lr_scheduler.OneCycleLR(
+    optimizer,
+    max_lr=max_lr,                 # 4e-3 for 60 epochs
+    epochs=num_epochs,             # 60
+    steps_per_epoch=len(train_loader),
+    pct_start=0.2,                 # 20% warmup (12 epochs)
+    anneal_strategy='cos',
+    div_factor=25.0,               # Start LR = max_lr/25 = 1.6e-4
+    final_div_factor=10000.0       # Final LR = max_lr/10000 = 4e-7
+)
+```
 
-# lr=3e-3, # Increase from 1e-3 to 2e-3
+### Configuration 6: Simple Cosine Annealing
 
-# weight_decay=5e-4 # Reduce from 5e-3 to 1e-3
+```python
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    optimizer,
+    T_max=num_epochs,
+    eta_min=1e-5
+)
+```
 
-# )
+### Configuration 7: Stable OneCycleLR (50 epochs)
 
-# scheduler = torch.optim.lr_scheduler.OneCycleLR(
-
-# optimizer,
-
-# max_lr=4e-3, # Keep proven peak LR
-
-# epochs=num_epochs, # 60
-
-# steps_per_epoch=len(train_loader),
-
-# pct_start=0.25, # 25% warmup (15 epochs) - longer peak
-
-# anneal_strategy='cos',
-
-# div_factor=20.0, # Start LR = 2e-4 (higher start)
-
-# final_div_factor=200.0 # Final LR = 2e-5 (much higher final)
-
-# )
-
-# new_max_lr = 2e-3 \* (256 / 128)\*\*0.25
-
-# scheduler = torch.optim.lr_scheduler.OneCycleLR(
-
-# optimizer,
-
-# max_lr=new_max_lr,
-
-# epochs=num_epochs,
-
-# steps_per_epoch=len(train_loader),
-
-# pct_start=0.15, # Increase from 0.1 to 0.3
-
-# anneal_strategy='cos'
-
-# )
-
-# base_max_lr = 4e-3 # Higher for faster convergence in 60 epochs
-
-# batch_size = 256
-
-# scaling_factor = (batch_size / 256) \*\* 0.5 # Linear scaling
-
-# max_lr = base_max_lr \* scaling_factor # = 4e-3
-
-# scheduler = torch.optim.lr_scheduler.OneCycleLR(
-
-# optimizer,
-
-# max_lr=max_lr, # 4e-3 for 60 epochs
-
-# epochs=num_epochs, # 60
-
-# steps_per_epoch=len(train_loader),
-
-# pct_start=0.2, # 20% warmup (12 epochs)
-
-# anneal_strategy='cos',
-
-# div_factor=25.0, # Start LR = max_lr/25 = 1.6e-4
-
-# final_div_factor=10000.0 # Final LR = max_lr/10000 = 4e-7
-
-# )
-
-# scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-
-# optimizer, T_max=num_epochs, eta_min=1e-5
-
-# )
-
-# scheduler = torch.optim.lr_scheduler.OneCycleLR(
-
-# optimizer,
-
-# max_lr=6e-3, # Reduce from 8e-3 to 6e-3 for stability
-
-# epochs=num_epochs, # 50
-
-# steps_per_epoch=len(train_loader),
-
-# pct_start=0.35, # Longer warmup (17 epochs vs 12)
-
-# anneal_strategy='cos',
-
-# div_factor=15.0, # Higher start LR (4e-4 vs 4e-5)
-
-# final_div_factor=300.0 # Much lower final LR (2e-5 vs 8e-5)
-
-# )
+```python
+scheduler = torch.optim.lr_scheduler.OneCycleLR(
+    optimizer,
+    max_lr=6e-3,                   # Reduced from 8e-3 to 6e-3 for stability
+    epochs=num_epochs,             # 50
+    steps_per_epoch=len(train_loader),
+    pct_start=0.35,                # Longer warmup (17 epochs vs 12)
+    anneal_strategy='cos',
+    div_factor=15.0,               # Higher start LR (4e-4 vs 4e-5)
+    final_div_factor=300.0         # Much lower final LR (2e-5 vs 8e-5)
+)
+```
 
 Backend Notes:
 
@@ -1113,3 +1100,50 @@ FastAPI                    Worker Process
 
 - trying to refactor to separate processes. the generate_caption function is no longer being used. got to fix the caption worker process.
 - trying to get rid of generate_caption function in websocket inference route.
+
+Vision Transformers:
+
+- split image into patches
+- Shape after Conv2d: (batch_size, 768, 14, 14)
+
+x.flatten(2).transpose(1, 2)
+
+- Shape after flatten and transpose: (batch_size, 196, 768)
+
+CLS Token
+
+In Vision Transformers (ViTs), the [CLS] token serves a similar purpose by aggregating information from all image patches through the attention mechanism, enabling whole-image classification.
+It is a foundational component that allows transformers to generate a global representation of the input, whether text or image, by learning to attend to relevant parts of the sequence during training.
+
+As patches from different positions may contribute differently to the final predictions, we also need a way to encode patch positions into the sequence. We’re going to use learnable position embeddings to add positional information to the embeddings. This is similar to how position embeddings are used in Transformer models for NLP tasks.
+
+.expand
+
+- The .expand() function in PyTorch is used to create a new view of a tensor with singleton dimensions expanded to a larger size without copying the data. It allows you to "stretch" the tensor along specified dimensions to match a desired shape, which is particularly useful for broadcasting operations.
+
+NN.Parameter
+
+- In PyTorch, nn.Parameter is a special kind of tensor that is automatically registered as a parameter when assigned as an attribute to an nn.Module subclass. This means that when you define a tensor as an nn.Parameter, it will be included in the list of parameters returned by model.parameters(), and it will be updated during the optimization process (e.g., during backpropagation).
+
+Stochastic Depth:
+
+- Stochastic Depth is a regularization technique used in deep neural networks, particularly in ResNets, to improve generalization and prevent overfitting. The core idea is to randomly drop entire layers (or blocks) during training, effectively creating a shallower network on each forward pass. This encourages the model to learn more robust features and reduces reliance on any single layer.
+
+```python
+class DropPath(nn.Module):
+    """Stochastic depth - drops entire residual branches"""
+    def __init__(self, drop_prob=0.0):
+        super().__init__()
+        self.drop_prob = drop_prob
+
+    def forward(self, x):
+        if self.drop_prob == 0. or not self.training:
+            return x
+        keep_prob = 1 - self.drop_prob
+        shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+        random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
+        random_tensor.floor_()
+        return x.div(keep_prob) * random_tensor
+```
+
+This code above implements Stochastic Depth by defining a DropPath module that randomly drops entire residual branches during training based on a specified drop probability.
