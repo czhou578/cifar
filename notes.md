@@ -1151,3 +1151,34 @@ This code above implements Stochastic Depth by defining a DropPath module that r
 Global Average Pooling:
 
 Fully Connected Layer: linear layer that maps features to class scores.
+
+Error in ResNet Block Addition:
+
+The line x = x + self.layers(x) assumes that the input x and the output of the convolutions self.layers(x) have the exact same shape.
+
+This logic breaks in two specific scenarios common in ResNet:
+
+Downsampling (Stride > 1):
+If your block uses a stride of 2, the output feature map will be half the height and width of the input x. You cannot mathematically add a 32x32 matrix to a 16x16 matrix.
+
+Channel Expansion:
+If your block increases the number of filters (e.g., from 64 to 128), the output will have more "depth" than the input x. You cannot add a tensor with 64 channels to one with 128 channels.
+
+The Missing Piece:
+In valid ResNet architectures, when the dimensions change, the "shortcut" (the x on the left side of the addition) must be projected to match the new dimensions. This is usually done via a 1x1 convolution. Your current code attempts to add the raw, unmodified input regardless
+
+```python
+
+nn.Identity() # identity layer
+```
+
+/tmp/ipython-input-808261370.py in forward(self, x)
+52 x = self.layers(x)
+...
+---> 54 x = x.view(x.size[0], -1)
+55 x = self.linear(x)
+56 return x
+
+TypeError: 'builtin_function_or_method' object is not subscriptable
+
+Solution: size is a method, should be x.size()!!
