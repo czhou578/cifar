@@ -1147,3 +1147,7 @@ class DropPath(nn.Module):
 ```
 
 This code above implements Stochastic Depth by defining a DropPath module that randomly drops entire residual branches during training based on a specified drop probability.
+
+Global Average Pooling:
+
+Fully Connected Layer: linear layer that maps features to class scores.
