@@ -1181,4 +1181,17 @@ nn.Identity() # identity layer
 
 TypeError: 'builtin_function_or_method' object is not subscriptable
 
-Solution: size is a method, should be x.size()!!
+Solution: size is a method, should be x.size()!
+
+why do we have to compare in channel to out channel in ResNet block?
+
+In a ResNet block, the comparison between the input channels and output channels is crucial for ensuring that the dimensions match when performing the residual addition operation. The residual connection adds the input (shortcut) to the output of the convolutional layers within the block. For this addition to be valid, both tensors must have the same shape.
+
+If the number of input channels (in_channels) is different from the number of output channels (out_channels), you cannot directly add them together because their shapes will not align. This mismatch can occur in two common scenarios.
+
+Example 1 with shapes:
+Input tensor x shape: (batch_size, 64, 32, 32)
+Output tensor shape after convolutions: (batch_size, 128, 16, 16)
+To resolve this, ResNet uses a projection shortcut (typically a 1x1 convolution) to transform the input tensor to match the output tensor's shape before performing the addition. This ensures that both tensors have the same number of channels and spatial dimensions, allowing for valid element-wise addition.
+
+The result will be (batch_size, 128, 16, 16) after the addition.
