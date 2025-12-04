@@ -1195,3 +1195,27 @@ Output tensor shape after convolutions: (batch_size, 128, 16, 16)
 To resolve this, ResNet uses a projection shortcut (typically a 1x1 convolution) to transform the input tensor to match the output tensor's shape before performing the addition. This ensures that both tensors have the same number of channels and spatial dimensions, allowing for valid element-wise addition.
 
 The result will be (batch_size, 128, 16, 16) after the addition.
+
+Feature Maps: height x width x channels
+
+When they say "each layer produces k feature maps", they mean that the output of that layer will have k channels. Each channel corresponds to a different feature map.
+
+In convolutional neural networks (CNNs), a feature map is the output of applying a filter (or kernel) to the input data. Each filter is designed to detect specific features in the input, such as edges, textures, or patterns. Channels can be visualized as separate 2D arrays stacked together, where each array represents a different feature map.
+
+**_Pre-activation_**: BatchNorm and ReLU are applied before the convolutional layers, rather than after. This ordering has been shown to improve gradient flow during training and lead to better performance.
+
+nn.ModuleList: A ModuleList is a container in PyTorch that holds submodules (layers) in a list. It allows you to store and manage multiple layers or modules in a sequential manner, making it easier to iterate over them during the forward pass.
+
+Example:
+
+```python
+self.layers = nn.ModuleList()
+for _ in range(num_blocks):
+    self.layers.append(ResNetBlock(...))
+```
+
+You want to halve spatial dimensions, not force a specific size, that's why use AvgPool2d with kernel size 2 and stride 2, not AdaptiveAvgPool2d.
+
+Running mean should contain 224 elements not 200:
+
+- The running mean and running variance in BatchNorm layers should match the number of output channels of the preceding convolutional layer. If your convolutional layer outputs 224 channels, then your BatchNorm layer should also have 224 features to maintain consistency.
