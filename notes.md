@@ -1219,3 +1219,63 @@ You want to halve spatial dimensions, not force a specific size, that's why use 
 Running mean should contain 224 elements not 200:
 
 - The running mean and running variance in BatchNorm layers should match the number of output channels of the preceding convolutional layer. If your convolutional layer outputs 224 channels, then your BatchNorm layer should also have 224 features to maintain consistency.
+
+## Grouped Convolutions
+
+Grouped convolutions divide the input channels into groups and perform convolutions separately within each group. This reduces the number of parameters and computational cost while still allowing the model to learn complex features. Originally, each convolutional filter was connected to all input channels. With grouped convolutions, each filter is only connected to a subset of the input channels.
+
+```python
+import torch
+import torch.nn as nn
+
+# Input: 64 channels, batch=1, 32x32 image
+x = torch.randn(1, 64, 32, 32)
+
+# ===== NORMAL CONVOLUTION =====
+normal_conv = nn.Conv2d(
+    in_channels=64,
+    out_channels=128,
+    kernel_size=3,
+    padding=1,
+    groups=1  # Default: all channels connected
+)
+
+output_normal = normal_conv(x)
+print(f"Normal conv output shape: {output_normal.shape}")
+# Output: [1, 128, 32, 32]
+
+# Parameters: 64 × 128 × 3 × 3 = 73,728
+print(f"Normal conv parameters: {sum(p.numel() for p in normal_conv.parameters()):,}")
+
+# ===== GROUPED CONVOLUTION (groups=2) =====
+grouped_conv = nn.Conv2d(
+    in_channels=64,
+    out_channels=128,
+    kernel_size=3,
+    padding=1,
+    groups=2  # Split into 2 groups
+)
+
+output_grouped = grouped_conv(x)
+print(f"\nGrouped conv output shape: {output_grouped.shape}")
+# Output: [1, 128, 32, 32] (same output shape!)
+
+# Parameters: 2 × (32 × 64 × 3 × 3) = 36,864 (half the parameters!)
+print(f"Grouped conv parameters: {sum(p.numel() for p in grouped_conv.parameters()):,}")
+# ===== DEPTHWISE CONVOLUTION (groups=in_channels) =====
+```
+
+Squeeze and Excitation:
+
+(batch, C, H, W): SE tries to learn which channels are important for a given input, and amplify or suppress them dynamically.
+
+Global average pool per channel to get (batch, C, 1, 1)
+Pass through two FC layers with ReLU and Sigmoid to get weights per channel (batch, C, 1, 1)
+Multiply original feature map by these weights to recalibrate channel importance.
+
+SiLU - Sigmoid Linear Unit, also known as the Swish activation function, is defined as:
+SiLU(x) = x \* sigmoid(x)
+
+It is different then ReLU because it is smooth and non-monotonic, which can help with gradient flow and lead to better performance in some cases. It allows small negative values to pass through, unlike ReLU which zeroes them out.
+
+Downsampling: It means that the spatial dimensions (height and width) of the feature maps are reduced. This is typically done using pooling layers (like MaxPool or AvgPool) or by using convolutional layers with a stride greater than 1.
