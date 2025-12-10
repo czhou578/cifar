@@ -1273,9 +1273,13 @@ Global average pool per channel to get (batch, C, 1, 1)
 Pass through two FC layers with ReLU and Sigmoid to get weights per channel (batch, C, 1, 1)
 Multiply original feature map by these weights to recalibrate channel importance.
 
-SiLU - Sigmoid Linear Unit, also known as the Swish activation function, is defined as:
+**_SiLU_** - Sigmoid Linear Unit, also known as the Swish activation function, is defined as:
 SiLU(x) = x \* sigmoid(x)
 
 It is different then ReLU because it is smooth and non-monotonic, which can help with gradient flow and lead to better performance in some cases. It allows small negative values to pass through, unlike ReLU which zeroes them out.
 
 Downsampling: It means that the spatial dimensions (height and width) of the feature maps are reduced. This is typically done using pooling layers (like MaxPool or AvgPool) or by using convolutional layers with a stride greater than 1.
+
+Depthwise convolution is a type of convolution where each input channel is convolved with its own set of filters, rather than combining all input channels together. This reduces the number of parameters and computational cost significantly.
+
+LayerNorm vs BatchNorm vs GroupNorm
