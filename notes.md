@@ -1282,4 +1282,30 @@ Downsampling: It means that the spatial dimensions (height and width) of the fea
 
 Depthwise convolution is a type of convolution where each input channel is convolved with its own set of filters, rather than combining all input channels together. This reduces the number of parameters and computational cost significantly.
 
-LayerNorm vs BatchNorm vs GroupNorm
+LayerNorm vs BatchNorm vs GroupNorm vs LocalResponseNorm
+
+```python
+torch.nn.LocalResponseNorm
+```
+
+- Applies local response normalization over an input signal composed of several input planes, typically used in early CNN architectures like AlexNet. It normalizes each pixel based on the values of neighboring pixels within the same channel. It is not used anymore, but use it for paper!
+
+After a convolution + ReLU, you have many feature maps (channels) at each spatial location (𝑥,𝑦)
+
+At one pixel location:
+
+several different filters may all fire strongly
+this can make activations very large dominated by a few filters less selective
+
+AlexNet introduces competition between nearby channels so that:
+
+strong activations suppress weaker ones and only the “most confident” features stay large.
+
+This idea is inspired by lateral inhibition in biological neurons.
+
+**Overlapping Pooling**: Using a pooling window that overlaps with adjacent windows (e.g., kernel size 3, stride 2) helps retain more spatial information compared to non-overlapping pooling (e.g., kernel size 2, stride 2). This can lead to better performance as the model can capture finer details in the feature maps.
+
+Today, we use vision transformers, stride < kernel size, and strided convolutions, or
+things like convnext.
+
+AlexNet padding rules: Padding = ⌊kernel_size / 2⌋ for all stride-1 convolutions
