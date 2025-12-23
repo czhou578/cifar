@@ -1309,3 +1309,16 @@ Today, we use vision transformers, stride < kernel size, and strided convolution
 things like convnext.
 
 AlexNet padding rules: Padding = ⌊kernel_size / 2⌋ for all stride-1 convolutions
+
+Spatially, output neurons only see the spatial positions of an n x n kernel.
+This means that each output neuron is influenced by a local region of the input image defined by the size of the convolutional kernel. For example, with a 3x3 kernel, each output neuron will be affected by a 3x3 area of the input image. This local receptive field allows the convolutional layer to capture spatial features and patterns in the input data.
+
+Dense across channels: each output neuron sees all input channels
+
+Features are spatially concentrated
+
+Higher layers detect larger patterns over bigger spatial areas (spatially diffuse)
+
+As depth increases, each neuron sees a larger spatial area of the input image (increased receptive field) but fewer channels (reduced channel depth).
+
+Receptive field - The receptive field of a neuron in a convolutional neural network refers to the specific region of the input image that influences the neuron's activation. In other words, it is the area of the input that the neuron "sees" or responds to.
