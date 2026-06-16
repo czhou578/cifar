@@ -4,7 +4,7 @@ torch==2.7.1+cpu
 torchvision==0.14.1+cpu
 torchmetrics==1.5.2
 Pillow==9.5.0
-python-multipart==0.0.27
+python-multipart==0.0.31
 pydantic==2.10.6
 numpy==1.22.0
 pytest==8.3.5
